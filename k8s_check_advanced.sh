@@ -22,6 +22,8 @@ CONFIG_FILE="${SCRIPT_DIR}/config.conf"
 DEBUG=${DEBUG:-true}
 PARALLEL_JOBS=${PARALLEL_JOBS:-5}
 CHECK_TIMEOUT=${CHECK_TIMEOUT:-60}
+KUBECONFIG=${KUBECONFIG:-"$HOME/.kube/config"}
+KUBE_CONTEXT=${KUBE_CONTEXT:-""}
 
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
@@ -65,6 +67,10 @@ create_default_config() {
     cat > "$CONFIG_FILE" << 'EOF'
 # Kubernetes Cluster Check Configuration
 
+# Kubernetes configuration
+# KUBECONFIG="$HOME/.kube/config"
+# KUBE_CONTEXT=""  # Leave empty to use current context
+
 # Check timeouts (seconds)
 CHECK_TIMEOUT=60
 NODE_CHECK_TIMEOUT=30
@@ -92,13 +98,59 @@ EOF
     log_info "Default configuration created at $CONFIG_FILE"
 }
 
+# Kubernetes utility functions
+kubectl_cmd() {
+    local cmd_args="$*"
+    
+    # Build kubectl command with proper config and context
+    local kubectl_command="kubectl"
+    
+    # Add kubeconfig if specified
+    if [[ -n "$KUBECONFIG" && -f "$KUBECONFIG" ]]; then
+        kubectl_command="$kubectl_command --kubeconfig='$KUBECONFIG'"
+    fi
+    
+    # Add context if specified
+    if [[ -n "$KUBE_CONTEXT" ]]; then
+        kubectl_command="$kubectl_command --context='$KUBE_CONTEXT'"
+    fi
+    
+    # Execute command
+    eval "$kubectl_command $cmd_args"
+}
+
+check_kube_connection() {
+    log_info "Checking Kubernetes connection..."
+    log_info "Using kubeconfig: $KUBECONFIG"
+    
+    if [[ -n "$KUBE_CONTEXT" ]]; then
+        log_info "Using context: $KUBE_CONTEXT"
+    else
+        local current_context=$(kubectl_cmd config current-context 2>/dev/null || echo "unknown")
+        log_info "Using current context: $current_context"
+    fi
+    
+    # Test cluster connectivity
+    if ! kubectl_cmd cluster-info &>/dev/null; then
+        log_error "Cannot connect to Kubernetes cluster"
+        log_error "Please check your kubeconfig file: $KUBECONFIG"
+        if [[ -n "$KUBE_CONTEXT" ]]; then
+            log_error "And verify context: $KUBE_CONTEXT"
+        fi
+        return 1
+    fi
+    
+    log_info "✅ Kubernetes cluster connection successful"
+    return 0
+}
+
 # Resource monitoring functions
 get_node_resources() {
     local node_name=$1
     log_debug "Getting resources for node: $node_name"
     
     # Get node capacity and allocatable resources
-    local node_info=$(kubectl describe node "$node_name" 2>/dev/null)
+    local node_info=$(kubectl_cmd describe node "$node_name" 2>/dev/null)
     
     # Extract capacity
     local cpu_capacity=$(echo "$node_info" | grep -A 10 "Capacity:" | grep "cpu:" | awk '{print $2}' | sed 's/m$//')
@@ -109,12 +161,12 @@ get_node_resources() {
     local memory_allocatable=$(echo "$node_info" | grep -A 10 "Allocatable:" | grep "memory:" | awk '{print $2}' | sed 's/Ki$//')
     
     # Get current resource requests
-    local resource_requests=$(kubectl describe node "$node_name" | grep -A 20 "Allocated resources:")
+    local resource_requests=$(kubectl_cmd describe node "$node_name" | grep -A 20 "Allocated resources:")
     local cpu_requests=$(echo "$resource_requests" | grep "cpu" | awk '{print $2}' | sed 's/m$//' | sed 's/(%)//')
     local memory_requests=$(echo "$resource_requests" | grep "memory" | awk '{print $2}' | sed 's/Ki$//' | sed 's/(%)//')
     
     # Get pod count
-    local pod_count=$(kubectl get pods --all-namespaces --field-selector spec.nodeName="$node_name" --no-headers | wc -l)
+    local pod_count=$(kubectl_cmd get pods --all-namespaces --field-selector spec.nodeName="$node_name" --no-headers | wc -l)
     local max_pods=$(echo "$node_info" | grep "pods:" | tail -1 | awk '{print $2}')
     
     # Calculate percentages
@@ -136,7 +188,7 @@ get_node_resources() {
     
     # Check for GPU resources
     local gpu_info=""
-    if kubectl describe node "$node_name" | grep -q "nvidia.com/gpu"; then
+    if kubectl_cmd describe node "$node_name" | grep -q "nvidia.com/gpu"; then
         local gpu_capacity=$(echo "$node_info" | grep "nvidia.com/gpu:" | awk '{print $2}')
         local gpu_allocatable=$(echo "$node_info" | grep -A 10 "Allocatable:" | grep "nvidia.com/gpu:" | awk '{print $2}')
         local gpu_requests=$(echo "$resource_requests" | grep "nvidia.com/gpu" | awk '{print $2}' || echo "0")
@@ -160,7 +212,7 @@ check_node_status() {
     local check_name="node_status"
     log_info "Checking cluster node status..."
     
-    local node_status=$(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name} {.status.conditions[-1].type} {.status.conditions[-1].status}{"\n"}{end}' 2>/dev/null)
+    local node_status=$(kubectl_cmd get nodes -o jsonpath='{range .items[*]}{.metadata.name} {.status.conditions[-1].type} {.status.conditions[-1].status}{"\n"}{end}' 2>/dev/null)
     local result="PASS"
     local details=""
     local node_count=0
@@ -198,7 +250,7 @@ check_pod_status() {
     local check_name="pod_status"
     log_info "Checking cluster pod status..."
     
-    local pod_status=$(kubectl get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace} {.metadata.name} {.status.phase} {.spec.nodeName}{"\n"}{end}' 2>/dev/null)
+    local pod_status=$(kubectl_cmd get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace} {.metadata.name} {.status.phase} {.spec.nodeName}{"\n"}{end}' 2>/dev/null)
     local result="PASS"
     local details=""
     local total_pods=0
@@ -239,9 +291,9 @@ check_services() {
     local check_name="services"
     log_info "Checking services status..."
     
-    if kubectl get svc -A &>/dev/null; then
+    if kubectl_cmd get svc -A &>/dev/null; then
         CHECK_RESULTS["$check_name"]="PASS"
-        local svc_count=$(kubectl get svc -A --no-headers | wc -l)
+        local svc_count=$(kubectl_cmd get svc -A --no-headers | wc -l)
         CHECK_DETAILS["$check_name"]="All $svc_count services are accessible"
     else
         CHECK_RESULTS["$check_name"]="FAIL"
@@ -255,7 +307,7 @@ check_coredns() {
     local check_name="coredns"
     log_info "Checking CoreDNS status..."
     
-    local coredns_status=$(kubectl get pods -n kube-system -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}' | grep coredns 2>/dev/null)
+    local coredns_status=$(kubectl_cmd get pods -n kube-system -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}' | grep coredns 2>/dev/null)
     local result="PASS"
     local details=""
     local dns_pod_count=0
@@ -290,8 +342,8 @@ check_storage() {
     local check_name="storage"
     log_info "Checking storage (PV/PVC) status..."
     
-    local pv_status=$(kubectl get pv -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}' 2>/dev/null)
-    local pvc_status=$(kubectl get pvc -A -o jsonpath='{range .items[*]}{.metadata.namespace} {.metadata.name} {.status.phase}{"\n"}{end}' 2>/dev/null)
+    local pv_status=$(kubectl_cmd get pv -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}' 2>/dev/null)
+    local pvc_status=$(kubectl_cmd get pvc -A -o jsonpath='{range .items[*]}{.metadata.namespace} {.metadata.name} {.status.phase}{"\n"}{end}' 2>/dev/null)
     
     local result="PASS"
     local details=""
@@ -343,44 +395,6 @@ check_storage() {
     log_info "Storage check completed: $result"
 }
 
-# Parallel execution wrapper
-run_check_parallel() {
-    local check_function=$1
-    local check_name=$2
-    
-    log_debug "Starting parallel check: $check_name"
-    
-    # Run check in background with timeout
-    (
-        timeout "$CHECK_TIMEOUT" "$check_function" 2>&1
-        echo "CHECK_COMPLETED:$check_name:$?"
-    ) &
-    
-    local pid=$!
-    PARALLEL_PIDS+=("$pid")
-    
-    return 0
-}
-
-# Wait for all parallel jobs to complete
-wait_for_parallel_jobs() {
-    local completed=0
-    local total=${#PARALLEL_PIDS[@]}
-    
-    for pid in "${PARALLEL_PIDS[@]}"; do
-        if wait "$pid"; then
-            ((completed++))
-            show_progress "$completed" "$total" "Waiting for checks to complete..."
-        else
-            log_warn "Check process $pid failed or timed out"
-            ((completed++))
-            show_progress "$completed" "$total" "Waiting for checks to complete..."
-        fi
-    done
-    
-    PARALLEL_PIDS=()
-    log_info "All parallel checks completed"
-}
 
 # HTML Report generation
 generate_html_report() {
@@ -819,17 +833,28 @@ main() {
     
     log_info "Kubernetes cluster is accessible"
     
-    # Run checks in parallel
+    # Run checks in parallel (simplified approach)
     log_info "Starting parallel health checks..."
     
-    run_check_parallel "check_node_status" "nodes" &
-    run_check_parallel "check_pod_status" "pods" &
-    run_check_parallel "check_services" "services" &
-    run_check_parallel "check_coredns" "coredns" &
-    run_check_parallel "check_storage" "storage" &
+    check_node_status &
+    local pid1=$!
+    
+    check_pod_status &
+    local pid2=$!
+    
+    check_services &
+    local pid3=$!
+    
+    check_coredns &
+    local pid4=$!
+    
+    check_storage &
+    local pid5=$!
     
     # Wait for all checks to complete
-    wait_for_parallel_jobs
+    log_info "Waiting for parallel checks to complete..."
+    wait $pid1 $pid2 $pid3 $pid4 $pid5
+    log_info "All checks completed"
     
     # Generate reports
     log_info "Generating reports..."

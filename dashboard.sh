@@ -33,8 +33,8 @@ create_progress_bar() {
     fi
     
     printf "${color}["
-    printf "%*s" "$filled" | tr ' ' '█'
-    printf "%*s" "$empty" | tr ' ' '░'
+    printf "%*s" "$filled" | tr ' ' '#'
+    printf "%*s" "$empty" | tr ' ' '-'
     printf "] %3d%%${NC}" "$percentage"
 }
 
@@ -42,10 +42,10 @@ create_progress_bar() {
 get_status_icon() {
     local status=$1
     case "$status" in
-        "SUCCESS") echo -e "${GREEN}✅${NC}" ;;
-        "WARNING") echo -e "${YELLOW}⚠️${NC}" ;;
-        "FAILED") echo -e "${RED}❌${NC}" ;;
-        *) echo -e "${BLUE}❓${NC}" ;;
+        "SUCCESS") echo -e "${GREEN}[OK]${NC}" ;;
+        "WARNING") echo -e "${YELLOW}[WARN]${NC}" ;;
+        "FAILED") echo -e "${RED}[FAIL]${NC}" ;;
+        *) echo -e "${BLUE}[?]${NC}" ;;
     esac
 }
 
@@ -65,10 +65,10 @@ check_nodes() {
     
     echo "$nodes_info" | jq -r '.items[] | "\(.metadata.name) \(.status.conditions[-1].type) \(.status.conditions[-1].status)"' | while read -r name condition status; do
         if [[ "$condition" == "Ready" && "$status" == "True" ]]; then
-            echo -e "  ${GREEN}✅${NC} $name - Ready"
+            echo -e "  ${GREEN}[OK]${NC} $name - Ready"
             ((ready_count++))
         else
-            echo -e "  ${RED}❌${NC} $name - $condition/$status"
+            echo -e "  ${RED}[FAIL]${NC} $name - $condition/$status"
         fi
     done
     
@@ -87,10 +87,10 @@ check_pods() {
     echo "$pod_stats" | while read -r count status; do
         local icon
         case "$status" in
-            "Running") icon="${GREEN}🟢${NC}" ;;
-            "Pending") icon="${YELLOW}🟡${NC}" ;;
-            "Failed"|"Error"|"CrashLoopBackOff") icon="${RED}🔴${NC}" ;;
-            *) icon="${BLUE}🟦${NC}" ;;
+            "Running") icon="${GREEN}[RUN]${NC}" ;;
+            "Pending") icon="${YELLOW}[PEND]${NC}" ;;
+            "Failed"|"Error"|"CrashLoopBackOff") icon="${RED}[FAIL]${NC}" ;;
+            *) icon="${BLUE}[UNK]${NC}" ;;
         esac
         echo -e "  $icon $status: $count개"
     done
@@ -108,7 +108,7 @@ check_rook_ceph() {
     local tools_pod=$(kubectl_cmd get pods -n rook-ceph -l app=rook-ceph-tools -o jsonpath='{.items[0].metadata.name}')
     
     if [[ -z "$tools_pod" ]]; then
-        echo -e "  ${YELLOW}⚠️${NC} rook-ceph-tools 파드를 찾을 수 없음"
+        echo -e "  ${YELLOW}[WARN]${NC} rook-ceph-tools 파드를 찾을 수 없음"
         return
     fi
     
@@ -116,10 +116,10 @@ check_rook_ceph() {
     local health_status=$(echo "$ceph_status" | jq -r '.health.status // "UNKNOWN"')
     
     case "$health_status" in
-        "HEALTH_OK") echo -e "  ${GREEN}✅${NC} Ceph 클러스터: 정상 (HEALTH_OK)" ;;
-        "HEALTH_WARN") echo -e "  ${YELLOW}⚠️${NC} Ceph 클러스터: 경고 (HEALTH_WARN)" ;;
-        "HEALTH_ERR") echo -e "  ${RED}❌${NC} Ceph 클러스터: 오류 (HEALTH_ERR)" ;;
-        *) echo -e "  ${BLUE}❓${NC} Ceph 클러스터: 상태 확인 불가" ;;
+        "HEALTH_OK") echo -e "  ${GREEN}[OK]${NC} Ceph 클러스터: 정상 (HEALTH_OK)" ;;
+        "HEALTH_WARN") echo -e "  ${YELLOW}[WARN]${NC} Ceph 클러스터: 경고 (HEALTH_WARN)" ;;
+        "HEALTH_ERR") echo -e "  ${RED}[FAIL]${NC} Ceph 클러스터: 오류 (HEALTH_ERR)" ;;
+        *) echo -e "  ${BLUE}[?]${NC} Ceph 클러스터: 상태 확인 불가" ;;
     esac
 }
 
@@ -129,7 +129,7 @@ check_storage_usage() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     # Harbor 디스크 사용량
-    echo -e "  ${CYAN}⚓${NC} Harbor Registry:"
+    echo -e "  ${CYAN}[HARBOR]${NC} Registry:"
     local harbor_pod=$(kubectl_cmd get pods -n harbor -l app=harbor,component=registry -o jsonpath='{.items[0].metadata.name}')
     
     if [[ -n "$harbor_pod" ]]; then
@@ -140,14 +140,14 @@ check_storage_usage() {
             local harbor_total=$(echo "$harbor_disk" | awk '{print $2}')
             echo -e "    $(create_progress_bar $harbor_percent) ($harbor_used/$harbor_total)"
         else
-            echo -e "    ${YELLOW}⚠️${NC} 디스크 사용량 확인 불가"
+            echo -e "    ${YELLOW}[WARN]${NC} 디스크 사용량 확인 불가"
         fi
     else
-        echo -e "    ${YELLOW}⚠️${NC} Harbor 파드를 찾을 수 없음"
+        echo -e "    ${YELLOW}[WARN]${NC} Harbor 파드를 찾을 수 없음"
     fi
     
     # Minio 디스크 사용량
-    echo -e "  ${PURPLE}🗄️${NC} Minio Storage:"
+    echo -e "  ${PURPLE}[MINIO]${NC} Storage:"
     local minio_pod=$(kubectl_cmd get pods -n minio -l app.kubernetes.io/name=minio -o jsonpath='{.items[0].metadata.name}')
     
     if [[ -n "$minio_pod" ]]; then
@@ -158,10 +158,10 @@ check_storage_usage() {
             local minio_total=$(echo "$minio_disk" | awk '{print $2}')
             echo -e "    $(create_progress_bar $minio_percent) ($minio_used/$minio_total)"
         else
-            echo -e "    ${YELLOW}⚠️${NC} 디스크 사용량 확인 불가"
+            echo -e "    ${YELLOW}[WARN]${NC} 디스크 사용량 확인 불가"
         fi
     else
-        echo -e "    ${YELLOW}⚠️${NC} Minio 파드를 찾을 수 없음"
+        echo -e "    ${YELLOW}[WARN]${NC} Minio 파드를 찾을 수 없음"
     fi
 }
 
@@ -189,15 +189,15 @@ check_recent_events() {
     local events=$(kubectl_cmd get events -A --sort-by='.firstTimestamp' --no-headers | tail -5)
     
     if [[ -z "$events" ]]; then
-        echo -e "  ${GREEN}✅${NC} 최근 중요한 이벤트 없음"
+        echo -e "  ${GREEN}[OK]${NC} 최근 중요한 이벤트 없음"
     else
         echo "$events" | while IFS= read -r line; do
             local type=$(echo "$line" | awk '{print $6}')
             local icon
             case "$type" in
-                "Normal") icon="${GREEN}ℹ️${NC}" ;;
-                "Warning") icon="${YELLOW}⚠️${NC}" ;;
-                *) icon="${RED}❗${NC}" ;;
+                "Normal") icon="${GREEN}[INFO]${NC}" ;;
+                "Warning") icon="${YELLOW}[WARN]${NC}" ;;
+                *) icon="${RED}[ERR]${NC}" ;;
             esac
             echo -e "  $icon $(echo "$line" | awk '{print $1, $2, $6, $7, $8}')"
         done

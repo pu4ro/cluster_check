@@ -517,6 +517,13 @@ check_service_endpoints() {
             continue
         fi
         
+        # Skip kserve/modelmesh-serving service
+        if [[ "$namespace" == "kserve" && "$svc_name" == "modelmesh-serving" ]]; then
+            log_info "Skipping kserve/modelmesh-serving service as requested"
+            ((services_with_endpoints++))
+            continue
+        fi
+        
         local endpoints=$(kubectl_cmd get endpoints -n "$namespace" "$svc_name" -o json 2>/dev/null)
         local endpoint_count=$(echo "$endpoints" | jq -r '.subsets[]?.addresses[]? | length' 2>/dev/null | wc -l)
         
@@ -591,7 +598,71 @@ check_storage_status() {
     fi
 }
 
-# Check 6: Ingress backend connections
+# Check 6: Rook-Ceph cluster health
+check_rook_ceph_health() {
+    log_info "Rook-Ceph 클러스터 상태 점검 중..."
+    
+    # Check if rook-ceph-tools deployment exists
+    local tools_deployment=$(kubectl_cmd get deployment -n rook-ceph rook-ceph-tools -o json 2>/dev/null)
+    if [[ -z "$tools_deployment" ]]; then
+        store_result "rook_ceph" "WARNING" "rook-ceph-tools deployment를 찾을 수 없습니다." "Rook-Ceph가 설치되어 있지 않거나 tools deployment가 없습니다."
+        return
+    fi
+    
+    # Check if deployment is ready
+    local ready_replicas=$(echo "$tools_deployment" | jq -r '.status.readyReplicas // 0')
+    local desired_replicas=$(echo "$tools_deployment" | jq -r '.spec.replicas // 1')
+    
+    if [[ $ready_replicas -lt $desired_replicas ]]; then
+        store_result "rook_ceph" "FAILED" "rook-ceph-tools 파드가 준비되지 않았습니다 ($ready_replicas/$desired_replicas)." "tools 파드가 실행 중이어야 Ceph 상태를 확인할 수 있습니다."
+        return
+    fi
+    
+    # Get the tools pod name
+    local tools_pod=$(kubectl_cmd get pods -n rook-ceph -l app=rook-ceph-tools -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [[ -z "$tools_pod" ]]; then
+        store_result "rook_ceph" "FAILED" "rook-ceph-tools 파드를 찾을 수 없습니다." "tools 파드가 실행 중이어야 합니다."
+        return
+    fi
+    
+    # Execute ceph -s command
+    log_info "Ceph 상태 확인 중: $tools_pod"
+    local ceph_status_output=$(kubectl_cmd exec -n rook-ceph "$tools_pod" -- ceph -s --format json 2>/dev/null)
+    
+    if [[ -z "$ceph_status_output" ]]; then
+        store_result "rook_ceph" "FAILED" "Ceph 상태 명령 실행에 실패했습니다." "ceph -s 명령이 응답하지 않습니다."
+        return
+    fi
+    
+    # Parse ceph health status
+    local health_status=$(echo "$ceph_status_output" | jq -r '.health.status // "UNKNOWN"' 2>/dev/null)
+    local health_checks=$(echo "$ceph_status_output" | jq -r '.health.checks // {}' 2>/dev/null)
+    local overall_status=$(echo "$ceph_status_output" | jq -r '.health.overall_status // "UNKNOWN"' 2>/dev/null)
+    
+    # Log detailed status for parsing
+    local detailed_log="Ceph Health Status: $health_status, Overall: $overall_status"
+    if [[ "$health_checks" != "{}" && "$health_checks" != "null" ]]; then
+        local check_details=$(echo "$health_checks" | jq -r 'to_entries[] | "\(.key): \(.value.summary.message // .value.detail[0].message // "no details")"' 2>/dev/null | tr '\n' '; ')
+        detailed_log="$detailed_log, Details: $check_details"
+    fi
+    
+    log_info "$detailed_log"
+    
+    # Store result based on health status
+    case "$health_status" in
+        "HEALTH_OK")
+            store_result "rook_ceph" "SUCCESS" "Ceph 클러스터가 정상 상태입니다 (HEALTH_OK)." "$detailed_log"
+            ;;
+        "HEALTH_WARN")
+            store_result "rook_ceph" "WARNING" "Ceph 클러스터에 경고가 있습니다 (HEALTH_WARN)." "$detailed_log"
+            ;;
+        "HEALTH_ERR"|*)
+            store_result "rook_ceph" "FAILED" "Ceph 클러스터에 오류가 있습니다 ($health_status)." "$detailed_log"
+            ;;
+    esac
+}
+
+# Check 7: Ingress backend connections
 check_ingress_backends() {
     log_info "Ingress 백엔드 연결 상태 점검 중..."
     
@@ -636,7 +707,133 @@ check_ingress_backends() {
     fi
 }
 
-# Check 7: URL connectivity
+# Global variables for disk usage
+declare -g HARBOR_DISK_USAGE=""
+declare -g HARBOR_DISK_DETAILS=""
+declare -g MINIO_DISK_USAGE=""
+declare -g MINIO_DISK_DETAILS=""
+
+# Check 7: Harbor disk usage
+check_harbor_disk_usage() {
+    log_info "Harbor 디스크 사용량 점검 중..."
+    
+    # Check if harbor-registry deployment exists
+    local harbor_deployment=$(kubectl_cmd get deployment -n harbor harbor-registry -o json 2>/dev/null)
+    if [[ -z "$harbor_deployment" ]]; then
+        store_result "harbor_disk" "WARNING" "harbor-registry deployment를 찾을 수 없습니다." "Harbor가 설치되어 있지 않습니다."
+        return
+    fi
+    
+    # Check if deployment is ready
+    local ready_replicas=$(echo "$harbor_deployment" | jq -r '.status.readyReplicas // 0')
+    local desired_replicas=$(echo "$harbor_deployment" | jq -r '.spec.replicas // 1')
+    
+    if [[ $ready_replicas -lt $desired_replicas ]]; then
+        store_result "harbor_disk" "FAILED" "harbor-registry 파드가 준비되지 않았습니다 ($ready_replicas/$desired_replicas)." "Harbor registry 파드가 실행 중이어야 합니다."
+        return
+    fi
+    
+    # Get the harbor-registry pod name
+    local harbor_pod=$(kubectl_cmd get pods -n harbor -l app=harbor,component=registry -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [[ -z "$harbor_pod" ]]; then
+        store_result "harbor_disk" "FAILED" "harbor-registry 파드를 찾을 수 없습니다." "registry 파드가 실행 중이어야 합니다."
+        return
+    fi
+    
+    # Execute df -h command to check RBD disk usage
+    log_info "Harbor 디스크 사용량 확인 중: $harbor_pod"
+    local disk_usage=$(kubectl_cmd exec -n harbor "$harbor_pod" -- df -h 2>/dev/null | grep -E "(rbd|/storage)" | head -1)
+    
+    if [[ -z "$disk_usage" ]]; then
+        store_result "harbor_disk" "WARNING" "Harbor 디스크 사용량을 확인할 수 없습니다." "df -h 명령에서 RBD 디스크를 찾을 수 없습니다."
+        return
+    fi
+    
+    # Parse disk usage information
+    local usage_percent=$(echo "$disk_usage" | awk '{print $5}' | sed 's/%//')
+    local used_space=$(echo "$disk_usage" | awk '{print $3}')
+    local total_space=$(echo "$disk_usage" | awk '{print $2}')
+    local mount_point=$(echo "$disk_usage" | awk '{print $6}')
+    
+    # Store in global variable for dashboard display
+    HARBOR_DISK_USAGE="$usage_percent"
+    HARBOR_DISK_DETAILS="Used: $used_space/$total_space ($usage_percent%) on $mount_point"
+    
+    # Log detailed information
+    local detailed_log="Harbor Disk Usage: $used_space/$total_space ($usage_percent%) on $mount_point"
+    log_info "$detailed_log"
+    
+    # Determine result based on usage percentage
+    if [[ $usage_percent -ge 90 ]]; then
+        store_result "harbor_disk" "FAILED" "Harbor 디스크 사용량이 매우 높습니다 ($usage_percent%)." "$detailed_log"
+    elif [[ $usage_percent -ge 80 ]]; then
+        store_result "harbor_disk" "WARNING" "Harbor 디스크 사용량이 높습니다 ($usage_percent%)." "$detailed_log"
+    else
+        store_result "harbor_disk" "SUCCESS" "Harbor 디스크 사용량이 정상 범위입니다 ($usage_percent%)." "$detailed_log"
+    fi
+}
+
+# Check 8: Minio disk usage
+check_minio_disk_usage() {
+    log_info "Minio 디스크 사용량 점검 중..."
+    
+    # Check if minio statefulset exists
+    local minio_statefulset=$(kubectl_cmd get statefulset -n minio minio -o json 2>/dev/null)
+    if [[ -z "$minio_statefulset" ]]; then
+        store_result "minio_disk" "WARNING" "minio statefulset를 찾을 수 없습니다." "Minio가 설치되어 있지 않습니다."
+        return
+    fi
+    
+    # Check if statefulset is ready
+    local ready_replicas=$(echo "$minio_statefulset" | jq -r '.status.readyReplicas // 0')
+    local desired_replicas=$(echo "$minio_statefulset" | jq -r '.spec.replicas // 1')
+    
+    if [[ $ready_replicas -lt $desired_replicas ]]; then
+        store_result "minio_disk" "FAILED" "minio 파드가 준비되지 않았습니다 ($ready_replicas/$desired_replicas)." "Minio 파드가 실행 중이어야 합니다."
+        return
+    fi
+    
+    # Get the minio pod name (usually minio-0 for statefulset)
+    local minio_pod=$(kubectl_cmd get pods -n minio -l app=minio -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [[ -z "$minio_pod" ]]; then
+        store_result "minio_disk" "FAILED" "minio 파드를 찾을 수 없습니다." "Minio 파드가 실행 중이어야 합니다."
+        return
+    fi
+    
+    # Execute df -h command to check RBD disk usage
+    log_info "Minio 디스크 사용량 확인 중: $minio_pod"
+    local disk_usage=$(kubectl_cmd exec -n minio "$minio_pod" -- df -h 2>/dev/null | grep -E "(rbd|/data|/storage)" | head -1)
+    
+    if [[ -z "$disk_usage" ]]; then
+        store_result "minio_disk" "WARNING" "Minio 디스크 사용량을 확인할 수 없습니다." "df -h 명령에서 RBD 디스크를 찾을 수 없습니다."
+        return
+    fi
+    
+    # Parse disk usage information
+    local usage_percent=$(echo "$disk_usage" | awk '{print $5}' | sed 's/%//')
+    local used_space=$(echo "$disk_usage" | awk '{print $3}')
+    local total_space=$(echo "$disk_usage" | awk '{print $2}')
+    local mount_point=$(echo "$disk_usage" | awk '{print $6}')
+    
+    # Store in global variable for dashboard display
+    MINIO_DISK_USAGE="$usage_percent"
+    MINIO_DISK_DETAILS="Used: $used_space/$total_space ($usage_percent%) on $mount_point"
+    
+    # Log detailed information
+    local detailed_log="Minio Disk Usage: $used_space/$total_space ($usage_percent%) on $mount_point"
+    log_info "$detailed_log"
+    
+    # Determine result based on usage percentage
+    if [[ $usage_percent -ge 90 ]]; then
+        store_result "minio_disk" "FAILED" "Minio 디스크 사용량이 매우 높습니다 ($usage_percent%)." "$detailed_log"
+    elif [[ $usage_percent -ge 80 ]]; then
+        store_result "minio_disk" "WARNING" "Minio 디스크 사용량이 높습니다 ($usage_percent%)." "$detailed_log"
+    else
+        store_result "minio_disk" "SUCCESS" "Minio 디스크 사용량이 정상 범위입니다 ($usage_percent%)." "$detailed_log"
+    fi
+}
+
+# Check 9: URL connectivity
 check_url_connectivity() {
     log_info "URL 연결 상태 점검 중: $TARGET_URL"
     
@@ -951,6 +1148,55 @@ generate_html_report() {
             </div>
         </div>
 
+        <!-- Storage Monitoring Section -->
+        <div class="advanced-card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i class="fas fa-hdd me-2"></i>스토리지 모니터링
+                </h3>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="node-resource-card">
+                            <div class="resource-section">
+                                <div class="resource-header">
+                                    <span class="resource-label"><i class="fas fa-anchor me-2"></i>Harbor 디스크 사용량</span>
+                                    <span class="resource-value" id="harbor-usage-text">-/-</span>
+                                </div>
+                                <div class="progress-section">
+                                    <div class="progress" style="height: 8px;">
+                                        <div class="progress-bar" id="harbor-progress" role="progressbar" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                                <div class="chart-container">
+                                    <canvas id="harbor-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="node-resource-card">
+                            <div class="resource-section">
+                                <div class="resource-header">
+                                    <span class="resource-label"><i class="fas fa-database me-2"></i>Minio 디스크 사용량</span>
+                                    <span class="resource-value" id="minio-usage-text">-/-</span>
+                                </div>
+                                <div class="progress-section">
+                                    <div class="progress" style="height: 8px;">
+                                        <div class="progress-bar" id="minio-progress" role="progressbar" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                                <div class="chart-container">
+                                    <canvas id="minio-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Detailed Check Results -->
         <div class="advanced-card">
             <div class="card-header">
@@ -1151,6 +1397,114 @@ generate_html_report() {
                 });
             });
             
+            // Function to create storage disk usage charts
+            function createStorageChart() {
+                // Get Harbor disk usage data from the results
+                const harborStatus = getCheckStatus('harbor_disk');
+                const harborDetails = getCheckDetails('harbor_disk');
+                const harborPercent = extractUsagePercent(harborDetails);
+                
+                // Get Minio disk usage data from the results
+                const minioStatus = getCheckStatus('minio_disk');
+                const minioDetails = getCheckDetails('minio_disk');
+                const minioPercent = extractUsagePercent(minioDetails);
+                
+                // Create Harbor chart
+                createDiskChart('harbor-chart', harborPercent, 'Harbor');
+                updateStorageDisplay('harbor', harborPercent, harborDetails);
+                
+                // Create Minio chart
+                createDiskChart('minio-chart', minioPercent, 'Minio');
+                updateStorageDisplay('minio', minioPercent, minioDetails);
+            }
+            
+            function getCheckStatus(checkName) {
+                if (checkName === 'harbor_disk') return 'HARBOR_STATUS';
+                if (checkName === 'minio_disk') return 'MINIO_STATUS';
+                return 'SUCCESS';
+            }
+            
+            function getCheckDetails(checkName) {
+                if (checkName === 'harbor_disk') return 'HARBOR_DETAILS';
+                if (checkName === 'minio_disk') return 'MINIO_DETAILS';
+                return 'No data available';
+            }
+            
+            function extractUsagePercent(details) {
+                const match = details.match(/([0-9]+)%/);
+                return match ? parseInt(match[1]) : 0;
+            }
+            
+            function createDiskChart(canvasId, percentage, label) {
+                const canvas = document.getElementById(canvasId);
+                if (!canvas) return;
+                
+                const color = percentage > 85 ? '#dc3545' : percentage > 70 ? '#fd7e14' : percentage > 50 ? '#ffc107' : '#28a745';
+                
+                new Chart(canvas, {
+                    type: 'doughnut',
+                    data: {
+                        datasets: [{
+                            data: [percentage, 100 - percentage],
+                            backgroundColor: [color, '#e9ecef'],
+                            borderWidth: 0,
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const labels = ['사용', '여유'];
+                                        return labels[context.dataIndex] + ': ' + context.parsed + '%';
+                                    }
+                                }
+                            }
+                        },
+                        animation: {
+                            animateRotate: true,
+                            duration: 1000
+                        },
+                        cutout: '70%'
+                    }
+                });
+            }
+            
+            function updateStorageDisplay(type, percentage, details) {
+                const color = percentage > 85 ? '#dc3545' : percentage > 70 ? '#fd7e14' : percentage > 50 ? '#ffc107' : '#28a745';
+                
+                // Update text display
+                const textElement = document.getElementById(type + '-usage-text');
+                if (textElement) {
+                    textElement.textContent = percentage + '%';
+                    textElement.style.color = color;
+                }
+                
+                // Update progress bar
+                const progressElement = document.getElementById(type + '-progress');
+                if (progressElement) {
+                    progressElement.style.width = percentage + '%';
+                    progressElement.style.backgroundColor = color;
+                    
+                    // Add appropriate Bootstrap classes
+                    progressElement.className = 'progress-bar';
+                    if (percentage > 85) {
+                        progressElement.classList.add('bg-danger');
+                    } else if (percentage > 70) {
+                        progressElement.classList.add('bg-warning');
+                    } else {
+                        progressElement.classList.add('bg-success');
+                    }
+                }
+            }
+            
+            // Create Harbor and Minio storage charts
+            createStorageChart();
+            
             // Add hover effects to cards
             document.querySelectorAll('.node-item, .stat-card, .advanced-card').forEach(card => {
                 card.addEventListener('mouseenter', function() {
@@ -1174,6 +1528,17 @@ EOF
     sed -i "s/SUCCESS_COUNT/${#SUCCESS_CHECKS[@]}/g" "$html_file"
     sed -i "s/WARNING_COUNT/${#WARNING_CHECKS[@]}/g" "$html_file"
     sed -i "s/FAILED_COUNT/${#FAILED_CHECKS[@]}/g" "$html_file"
+    
+    # Add Harbor and Minio disk usage data
+    local harbor_status="${CHECK_RESULTS[harbor_disk]:-N/A}"
+    local harbor_details="${CHECK_DETAILS[harbor_disk]:-Harbor disk usage not available}"
+    local minio_status="${CHECK_RESULTS[minio_disk]:-N/A}"
+    local minio_details="${CHECK_DETAILS[minio_disk]:-Minio disk usage not available}"
+    
+    sed -i "s/HARBOR_STATUS/$harbor_status/g" "$html_file"
+    sed -i "s/HARBOR_DETAILS/$harbor_details/g" "$html_file"
+    sed -i "s/MINIO_STATUS/$minio_status/g" "$html_file"
+    sed -i "s/MINIO_DETAILS/$minio_details/g" "$html_file"
     
     # Generate node resources content
     local node_content=""
@@ -1452,8 +1817,8 @@ EOF
     
     # Generate check results content
     local check_content=""
-    local check_names=("nodes" "pods" "deployments" "services" "storage" "ingress" "url_check")
-    local check_titles=("노드 상태" "파드 상태" "디플로이먼트 상태" "서비스 엔드포인트" "스토리지 (PV/PVC)" "Ingress 백엔드 연결" "URL 연결 테스트")
+    local check_names=("nodes" "pods" "deployments" "services" "storage" "ingress" "url_check" "rook_ceph" "harbor_disk" "minio_disk")
+    local check_titles=("노드 상태" "파드 상태" "디플로이먼트 상태" "서비스 엔드포인트" "스토리지 (PV/PVC)" "Ingress 백엔드 연결" "URL 연결 테스트" "Rook-Ceph 클러스터" "Harbor 디스크 사용량" "Minio 디스크 사용량")
     
     for i in "${!check_names[@]}"; do
         local check_name="${check_names[$i]}"
@@ -1675,26 +2040,35 @@ main() {
     log_info "점검을 시작합니다..."
     
     # Run all checks with error handling
-    log_info "1/7 노드 상태 점검..."
+    log_info "1/10 노드 상태 점검..."
     check_node_status || log_warn "노드 상태 점검에서 오류가 발생했지만 계속 진행합니다."
     
-    log_info "2/7 파드 상태 점검..."
+    log_info "2/10 파드 상태 점검..."
     check_pod_status || log_warn "파드 상태 점검에서 오류가 발생했지만 계속 진행합니다."
     
-    log_info "3/7 디플로이먼트 상태 점검..."
+    log_info "3/10 디플로이먼트 상태 점검..."
     check_deployment_status || log_warn "디플로이먼트 상태 점검에서 오류가 발생했지만 계속 진행합니다."
     
-    log_info "4/7 서비스 엔드포인트 점검..."
+    log_info "4/10 서비스 엔드포인트 점검..."
     check_service_endpoints || log_warn "서비스 엔드포인트 점검에서 오류가 발생했지만 계속 진행합니다."
     
-    log_info "5/7 스토리지 상태 점검..."
+    log_info "5/10 스토리지 상태 점검..."
     check_storage_status || log_warn "스토리지 상태 점검에서 오류가 발생했지만 계속 진행합니다."
     
-    log_info "6/7 Ingress 백엔드 점검..."
+    log_info "6/10 Ingress 백엔드 점검..."
     check_ingress_backends || log_warn "Ingress 백엔드 점검에서 오류가 발생했지만 계속 진행합니다."
     
-    log_info "7/7 URL 연결 테스트..."
+    log_info "7/10 URL 연결 테스트..."
     check_url_connectivity || log_warn "URL 연결 테스트에서 오류가 발생했지만 계속 진행합니다."
+    
+    log_info "8/10 Rook-Ceph 상태 점검..."
+    check_rook_ceph_health || log_warn "Rook-Ceph 상태 점검에서 오류가 발생했지만 계속 진행합니다."
+    
+    log_info "9/10 Harbor 디스크 사용량 점검..."
+    check_harbor_disk_usage || log_warn "Harbor 디스크 사용량 점검에서 오류가 발생했지만 계속 진행합니다."
+    
+    log_info "10/10 Minio 디스크 사용량 점검..."
+    check_minio_disk_usage || log_warn "Minio 디스크 사용량 점검에서 오류가 발생했지만 계속 진행합니다."
     
     echo
     log_info "보고서를 생성합니다..."

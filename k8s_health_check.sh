@@ -218,18 +218,17 @@ parse_arguments() {
 
 # Kubernetes utility functions
 kubectl_cmd() {
-    local cmd_args="$*"
-    local kubectl_command="kubectl"
+    local kubectl_args=()
     
     if [[ -n "$KUBECONFIG" && -f "$KUBECONFIG" ]]; then
-        kubectl_command="$kubectl_command --kubeconfig='$KUBECONFIG'"
+        kubectl_args+=(--kubeconfig="$KUBECONFIG")
     fi
     
     if [[ -n "$KUBE_CONTEXT" ]]; then
-        kubectl_command="$kubectl_command --context='$KUBE_CONTEXT'"
+        kubectl_args+=(--context="$KUBE_CONTEXT")
     fi
     
-    eval "$kubectl_command $cmd_args"
+    kubectl "${kubectl_args[@]}" "$@"
 }
 
 # Check Kubernetes connection
@@ -286,19 +285,33 @@ check_node_status() {
     local not_ready_nodes=0
     local details=""
     
-    while read -r node_name node_status; do
+    # Parse node status information
+    local node_status_list
+    node_status_list=$(echo "$node_info" | jq -r '.items[] | "\(.metadata.name) \(.status.conditions[] | select(.type=="Ready") | .status)"')
+    
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        local node_name=$(echo "$line" | awk '{print $1}')
+        local node_status=$(echo "$line" | awk '{print $2}')
+        
         if [[ "$node_status" == "True" ]]; then
             ((ready_nodes++))
         else
             ((not_ready_nodes++))
             details+="노드 '$node_name'이 Ready 상태가 아닙니다. "
         fi
-    done < <(echo "$node_info" | jq -r '.items[] | "\(.metadata.name) \(.status.conditions[] | select(.type=="Ready") | .status)"')
+    done <<< "$node_status_list"
     
     # Get node resource information
-    while read -r node_name; do
-        get_node_resources "$node_name"
-    done < <(echo "$node_info" | jq -r '.items[].metadata.name')
+    local node_name_list
+    node_name_list=$(echo "$node_info" | jq -r '.items[].metadata.name')
+    
+    for node_name in $node_name_list; do
+        log_debug "Processing node: $node_name"
+        if ! timeout 30 get_node_resources "$node_name"; then
+            log_warn "Failed to get resources for node: $node_name"
+        fi
+    done
     
     if [[ $not_ready_nodes -eq 0 ]]; then
         store_result "nodes" "SUCCESS" "모든 노드($node_count개)가 Ready 상태입니다."
@@ -311,7 +324,17 @@ check_node_status() {
 get_node_resources() {
     local node_name=$1
     
-    local node_info=$(kubectl_cmd describe node "$node_name" 2>/dev/null)
+    # Add timeout and error handling
+    local node_info
+    if ! node_info=$(timeout 20 kubectl_cmd describe node "$node_name" 2>/dev/null); then
+        log_warn "Failed to describe node: $node_name"
+        return 1
+    fi
+    
+    if [[ -z "$node_info" ]]; then
+        log_warn "Empty node information for: $node_name"
+        return 1
+    fi
     
     # Extract capacity and allocatable
     local cpu_capacity=$(echo "$node_info" | grep -A 10 "Capacity:" | grep "cpu:" | awk '{print $2}' | sed 's/m$//')
@@ -324,8 +347,12 @@ get_node_resources() {
     local cpu_requests=$(echo "$resource_requests" | grep "cpu" | awk '{print $2}' | sed 's/m$//' | sed 's/(%)//')
     local memory_requests=$(echo "$resource_requests" | grep "memory" | awk '{print $2}' | sed 's/Ki$//' | sed 's/(%)//')
     
-    # Get pod count
-    local pod_count=$(kubectl_cmd get pods --all-namespaces --field-selector spec.nodeName="$node_name" --no-headers 2>/dev/null | wc -l)
+    # Get pod count with timeout
+    local pod_count=0
+    if ! pod_count=$(timeout 15 kubectl_cmd get pods --all-namespaces --field-selector spec.nodeName="$node_name" --no-headers 2>/dev/null | wc -l); then
+        log_warn "Failed to get pod count for node: $node_name"
+        pod_count=0
+    fi
     local max_pods=$(echo "$node_info" | grep "pods:" | tail -1 | awk '{print $2}')
     
     # Calculate percentages
@@ -333,15 +360,16 @@ get_node_resources() {
     local memory_percent=0
     local pod_percent=0
     
-    if [[ -n "$cpu_allocatable" && "$cpu_allocatable" -gt 0 ]]; then
+    # Safe calculation with defaults
+    if [[ -n "$cpu_allocatable" && "$cpu_allocatable" =~ ^[0-9]+$ && "$cpu_allocatable" -gt 0 && -n "$cpu_requests" && "$cpu_requests" =~ ^[0-9]+$ ]]; then
         cpu_percent=$(echo "scale=1; ($cpu_requests * 100) / $cpu_allocatable" | bc -l 2>/dev/null || echo "0")
     fi
     
-    if [[ -n "$memory_allocatable" && "$memory_allocatable" -gt 0 ]]; then
+    if [[ -n "$memory_allocatable" && "$memory_allocatable" =~ ^[0-9]+$ && "$memory_allocatable" -gt 0 && -n "$memory_requests" && "$memory_requests" =~ ^[0-9]+$ ]]; then
         memory_percent=$(echo "scale=1; ($memory_requests * 100) / $memory_allocatable" | bc -l 2>/dev/null || echo "0")
     fi
     
-    if [[ -n "$max_pods" && "$max_pods" -gt 0 ]]; then
+    if [[ -n "$max_pods" && "$max_pods" =~ ^[0-9]+$ && "$max_pods" -gt 0 ]]; then
         pod_percent=$(echo "scale=1; ($pod_count * 100) / $max_pods" | bc -l 2>/dev/null || echo "0")
     fi
     
@@ -353,7 +381,7 @@ get_node_resources() {
         local gpu_requests=$(echo "$resource_requests" | grep "nvidia.com/gpu" | awk '{print $2}' || echo "0")
         local gpu_percent=0
         
-        if [[ -n "$gpu_allocatable" && "$gpu_allocatable" -gt 0 ]]; then
+        if [[ -n "$gpu_allocatable" && "$gpu_allocatable" =~ ^[0-9]+$ && "$gpu_allocatable" -gt 0 && -n "$gpu_requests" && "$gpu_requests" =~ ^[0-9]+$ ]]; then
             gpu_percent=$(echo "scale=1; ($gpu_requests * 100) / $gpu_allocatable" | bc -l 2>/dev/null || echo "0")
         fi
         

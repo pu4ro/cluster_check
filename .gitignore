@@ -1,0 +1,18 @@
+# Generated reports
+reports/*.log
+reports/*.html
+reports/*.json
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+
+# System files
+*~
+*.swp
+*.swo

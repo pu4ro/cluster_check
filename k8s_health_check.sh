@@ -5,7 +5,9 @@
 # Author: DevOps Team
 # Version: 3.0.0
 
-set -euo pipefail
+# More lenient error handling to prevent early exit
+set -e  # Exit on error, but allow more graceful handling
+# set -u and set -o pipefail removed to prevent premature termination
 
 # Global variables
 declare -A CHECK_RESULTS=()
@@ -52,6 +54,10 @@ log_error() {
 
 log_success() {
     echo -e "${GREEN}[SUCCESS]${NC} $*"
+}
+
+log_debug() {
+    echo -e "${BLUE}[DEBUG]${NC} $*"
 }
 
 # Usage function
@@ -279,8 +285,29 @@ store_result() {
 check_node_status() {
     log_info "노드 상태 점검 중..."
     
-    local node_info=$(kubectl_cmd get nodes -o json 2>/dev/null)
-    local node_count=$(echo "$node_info" | jq -r '.items | length')
+    # Get node information with error handling
+    local node_info
+    if ! node_info=$(kubectl_cmd get nodes -o json 2>/dev/null); then
+        log_error "Failed to get node information"
+        store_result "nodes" "FAILED" "클러스터 노드 정보를 가져올 수 없습니다."
+        return 1
+    fi
+    
+    if [[ -z "$node_info" ]]; then
+        log_error "Empty node information received"
+        store_result "nodes" "FAILED" "노드 정보가 비어있습니다."
+        return 1
+    fi
+    
+    local node_count
+    if ! node_count=$(echo "$node_info" | jq -r '.items | length' 2>/dev/null); then
+        log_error "Failed to parse node count"
+        store_result "nodes" "FAILED" "노드 수를 파싱할 수 없습니다."
+        return 1
+    fi
+    
+    log_debug "Found $node_count nodes"
+    
     local ready_nodes=0
     local not_ready_nodes=0
     local details=""
@@ -304,14 +331,17 @@ check_node_status() {
     
     # Get node resource information
     local node_name_list
-    node_name_list=$(echo "$node_info" | jq -r '.items[].metadata.name')
-    
-    for node_name in $node_name_list; do
-        log_debug "Processing node: $node_name"
-        if ! timeout 30 get_node_resources "$node_name"; then
-            log_warn "Failed to get resources for node: $node_name"
-        fi
-    done
+    if ! node_name_list=$(echo "$node_info" | jq -r '.items[].metadata.name' 2>/dev/null); then
+        log_warn "Failed to get node name list, skipping resource collection"
+    else
+        for node_name in $node_name_list; do
+            [[ -z "$node_name" ]] && continue
+            log_debug "Processing node: $node_name"
+            if ! timeout 30 get_node_resources "$node_name" 2>/dev/null; then
+                log_warn "Failed to get resources for node: $node_name"
+            fi
+        done
+    fi
     
     if [[ $not_ready_nodes -eq 0 ]]; then
         store_result "nodes" "SUCCESS" "모든 노드($node_count개)가 Ready 상태입니다."
@@ -1104,14 +1134,27 @@ main() {
     echo
     log_info "점검을 시작합니다..."
     
-    # Run all checks
-    check_node_status
-    check_pod_status
-    check_deployment_status
-    check_service_endpoints
-    check_storage_status
-    check_ingress_backends
-    check_url_connectivity
+    # Run all checks with error handling
+    log_info "1/7 노드 상태 점검..."
+    check_node_status || log_warn "노드 상태 점검에서 오류가 발생했지만 계속 진행합니다."
+    
+    log_info "2/7 파드 상태 점검..."
+    check_pod_status || log_warn "파드 상태 점검에서 오류가 발생했지만 계속 진행합니다."
+    
+    log_info "3/7 디플로이먼트 상태 점검..."
+    check_deployment_status || log_warn "디플로이먼트 상태 점검에서 오류가 발생했지만 계속 진행합니다."
+    
+    log_info "4/7 서비스 엔드포인트 점검..."
+    check_service_endpoints || log_warn "서비스 엔드포인트 점검에서 오류가 발생했지만 계속 진행합니다."
+    
+    log_info "5/7 스토리지 상태 점검..."
+    check_storage_status || log_warn "스토리지 상태 점검에서 오류가 발생했지만 계속 진행합니다."
+    
+    log_info "6/7 Ingress 백엔드 점검..."
+    check_ingress_backends || log_warn "Ingress 백엔드 점검에서 오류가 발생했지만 계속 진행합니다."
+    
+    log_info "7/7 URL 연결 테스트..."
+    check_url_connectivity || log_warn "URL 연결 테스트에서 오류가 발생했지만 계속 진행합니다."
     
     echo
     log_info "보고서를 생성합니다..."

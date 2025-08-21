@@ -1,0 +1,5 @@
+[2025-08-21 15:08:31] [INFO] Starting advanced Kubernetes cluster health check...
+[2025-08-21 15:08:31] [INFO] Script version: 2.0.0
+[2025-08-21 15:08:31] [INFO] Output directory: /root/cluster_check/reports
+[2025-08-21 15:08:31] [WARN] Configuration file not found, using defaults
+[2025-08-21 15:08:31] [INFO] Default configuration created at /root/cluster_check/config.conf

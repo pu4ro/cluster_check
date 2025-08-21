@@ -57,33 +57,102 @@ log_success() {
 # Usage function
 show_usage() {
     cat << EOF
-사용법: $0 <URL> [옵션]
+사용법: $0 [URL] [옵션]
 
 인자:
-    URL                     점검할 도메인 URL (예: https://example.com)
+    URL                     점검할 도메인 URL (선택사항 - 미입력 시 대화형 입력)
 
 옵션:
+    --url URL               점검할 URL 지정
     --output FORMAT         출력 형식 (html|log|json, 기본값: html)
     --kubeconfig PATH       kubeconfig 파일 경로 (기본값: ~/.kube/config)
     --context NAME          사용할 Kubernetes 컨텍스트
+    --interactive, -i       대화형 모드 강제 실행
     --help                  이 도움말 표시
 
-예제:
+사용 방법:
+
+1) 대화형 모드 (권장):
+    $0                      # 도메인과 프로토콜을 대화형으로 입력
+    $0 --interactive        # 명시적으로 대화형 모드 실행
+
+2) 명령행 인자 방식:
     $0 https://example.com
-    $0 https://example.com --output html
-    $0 https://example.com --output json
+    $0 --url https://example.com --output json
     $0 https://example.com --kubeconfig /path/to/config --context my-cluster
+
+3) 출력 형식별 사용:
+    $0 --output html        # 고객용 HTML 대시보드 (기본값)
+    $0 --output json        # 모니터링 시스템 연동용
+    $0 --output log         # 관리자용 텍스트 로그
 
 EOF
 }
 
+# Interactive input functions
+get_user_input() {
+    log_info "대화형 설정을 시작합니다..."
+    echo
+    
+    # Get domain
+    while true; do
+        echo -n "🌐 점검할 도메인을 입력하세요 (예: example.com): "
+        read -r domain_input
+        
+        if [[ -z "$domain_input" ]]; then
+            log_warn "도메인을 입력해주세요."
+            continue
+        fi
+        
+        # Remove protocol if provided
+        domain_input=$(echo "$domain_input" | sed 's|^https\?://||')
+        
+        # Basic domain validation
+        if [[ ! "$domain_input" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]$ ]]; then
+            log_warn "올바른 도메인 형식이 아닙니다. 예: example.com"
+            continue
+        fi
+        
+        break
+    done
+    
+    # Get protocol
+    echo
+    echo "🔒 프로토콜을 선택하세요:"
+    echo "  1) HTTPS (권장)"
+    echo "  2) HTTP"
+    
+    while true; do
+        echo -n "선택 (1 또는 2): "
+        read -r protocol_choice
+        
+        case "$protocol_choice" in
+            1)
+                protocol="https"
+                break
+                ;;
+            2)
+                protocol="http"
+                break
+                ;;
+            *)
+                log_warn "1 또는 2를 선택해주세요."
+                ;;
+        esac
+    done
+    
+    # Construct final URL
+    TARGET_URL="${protocol}://${domain_input}"
+    
+    echo
+    log_success "설정 완료: $TARGET_URL"
+    echo
+}
+
 # Parse command line arguments
 parse_arguments() {
-    if [[ $# -eq 0 ]]; then
-        show_usage
-        exit 1
-    fi
-
+    local url_provided=false
+    
     while [[ $# -gt 0 ]]; do
         case $1 in
             --output)
@@ -102,9 +171,19 @@ parse_arguments() {
                 KUBE_CONTEXT="$2"
                 shift 2
                 ;;
+            --url)
+                TARGET_URL="$2"
+                url_provided=true
+                shift 2
+                ;;
             --help)
                 show_usage
                 exit 0
+                ;;
+            --interactive|-i)
+                # Force interactive mode
+                url_provided=false
+                shift
                 ;;
             -*)
                 log_error "알 수 없는 옵션: $1"
@@ -114,6 +193,7 @@ parse_arguments() {
             *)
                 if [[ -z "$TARGET_URL" ]]; then
                     TARGET_URL="$1"
+                    url_provided=true
                 else
                     log_error "너무 많은 인자입니다."
                     show_usage
@@ -124,16 +204,15 @@ parse_arguments() {
         esac
     done
 
-    if [[ -z "$TARGET_URL" ]]; then
-        log_error "URL을 지정해야 합니다."
-        show_usage
-        exit 1
-    fi
-
-    # Validate URL format
-    if [[ ! "$TARGET_URL" =~ ^https?:// ]]; then
-        log_error "잘못된 URL 형식: $TARGET_URL. http:// 또는 https://로 시작해야 합니다."
-        exit 1
+    # If URL not provided via command line, get it interactively
+    if [[ "$url_provided" == "false" || -z "$TARGET_URL" ]]; then
+        get_user_input
+    else
+        # Validate URL format if provided via command line
+        if [[ ! "$TARGET_URL" =~ ^https?:// ]]; then
+            log_error "잘못된 URL 형식: $TARGET_URL. http:// 또는 https://로 시작해야 합니다."
+            exit 1
+        fi
     fi
 }
 
@@ -506,6 +585,15 @@ check_url_connectivity() {
     fi
 }
 
+# Helper function to determine color based on usage percentage
+get_usage_color() {
+    local percent=$(echo "$1" | cut -d. -f1)
+    if [[ $percent -lt 60 ]]; then echo "success"
+    elif [[ $percent -lt 80 ]]; then echo "warning"
+    else echo "danger"
+    fi
+}
+
 # Generate HTML report
 generate_html_report() {
     local html_file="${OUTPUT_DIR}/k8s_health_report_${TIMESTAMP}.html"
@@ -724,17 +812,9 @@ EOF
         local memory_percent=$(echo "$node_data" | jq -r '.memory_percent')
         
         # Determine color based on usage
-        local get_color() {
-            local percent=$(echo "$1" | cut -d. -f1)
-            if [[ $percent -lt 60 ]]; then echo "success"
-            elif [[ $percent -lt 80 ]]; then echo "warning"
-            else echo "danger"
-            fi
-        }
-        
-        local pod_color=$(get_color "$pod_percent")
-        local cpu_color=$(get_color "$cpu_percent")
-        local memory_color=$(get_color "$memory_percent")
+        local pod_color=$(get_usage_color "$pod_percent")
+        local cpu_color=$(get_usage_color "$cpu_percent")
+        local memory_color=$(get_usage_color "$memory_percent")
         
         node_content+="<div class=\"node-card\">
             <h5>📦 $node_name</h5>
@@ -765,7 +845,7 @@ EOF
         # Add GPU if available
         if echo "$node_data" | jq -e '.gpu_percent' >/dev/null 2>&1; then
             local gpu_percent=$(echo "$node_data" | jq -r '.gpu_percent')
-            local gpu_color=$(get_color "$gpu_percent")
+            local gpu_color=$(get_usage_color "$gpu_percent")
             node_content+="
             <div class=\"row mt-2\">
                 <div class=\"col-md-4\">

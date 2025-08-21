@@ -794,7 +794,7 @@ check_minio_disk_usage() {
     fi
     
     # Get the minio pod name (usually minio-0 for statefulset)
-    local minio_pod=$(kubectl_cmd get pods -n minio -l app=minio -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    local minio_pod=$(kubectl_cmd get pods -n minio -l app.kubernetes.io/name=minio -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
     if [[ -z "$minio_pod" ]]; then
         store_result "minio_disk" "FAILED" "minio 파드를 찾을 수 없습니다." "Minio 파드가 실행 중이어야 합니다."
         return

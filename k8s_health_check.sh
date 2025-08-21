@@ -742,7 +742,7 @@ check_harbor_disk_usage() {
     
     # Execute df -h command to check RBD disk usage
     log_info "Harbor 디스크 사용량 확인 중: $harbor_pod"
-    local disk_usage=$(kubectl_cmd exec -n harbor "$harbor_pod" -- df -h 2>/dev/null | grep -E "(rbd|/storage)" | head -1)
+    local disk_usage=$(kubectl_cmd exec -n harbor "$harbor_pod" -- df -h 2>/dev/null | grep "rbd" | head -1)
     
     if [[ -z "$disk_usage" ]]; then
         store_result "harbor_disk" "WARNING" "Harbor 디스크 사용량을 확인할 수 없습니다." "df -h 명령에서 RBD 디스크를 찾을 수 없습니다."
@@ -802,7 +802,7 @@ check_minio_disk_usage() {
     
     # Execute df -h command to check RBD disk usage
     log_info "Minio 디스크 사용량 확인 중: $minio_pod"
-    local disk_usage=$(kubectl_cmd exec -n minio "$minio_pod" -- df -h 2>/dev/null | grep -E "(rbd|/data|/storage)" | head -1)
+    local disk_usage=$(kubectl_cmd exec -n minio "$minio_pod" -- df -h 2>/dev/null | grep "rbd" | head -1)
     
     if [[ -z "$disk_usage" ]]; then
         store_result "minio_disk" "WARNING" "Minio 디스크 사용량을 확인할 수 없습니다." "df -h 명령에서 RBD 디스크를 찾을 수 없습니다."

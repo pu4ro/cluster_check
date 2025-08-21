@@ -1264,19 +1264,6 @@ generate_html_report() {
             </div>
         </div>
 
-        <!-- Detailed Check Results -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title mb-0">🔍 상세 점검 결과</h3>
-                    </div>
-                    <div class="card-body">
-                        CHECK_RESULTS_CONTENT
-                    </div>
-                </div>
-            </div>
-        </div>
 
         <!-- Footer -->
         <div class="text-center mt-5 pt-4" style="border-top: 1px solid #e9ecef;">

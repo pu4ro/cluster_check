@@ -909,14 +909,14 @@ EOF
                         <label>CPU 사용률</label>
                         <div class=\"resource-bar bg-light\">
                             <div class=\"fill bg-$cpu_color\" data-width=\"$cpu_percent\"></div>
-                            <div class=\"label\">${cpu_percent}%</div>
+                            <div class=\"label\">${cpu_percent%.*}/100 (${cpu_percent}%)</div>
                         </div>
                     </div>
                     <div class=\"col-md-4\">
                         <label>메모리 사용률</label>
                         <div class=\"resource-bar bg-light\">
                             <div class=\"fill bg-$memory_color\" data-width=\"$memory_percent\"></div>
-                            <div class=\"label\">${memory_percent}%</div>
+                            <div class=\"label\">${memory_percent%.*}/100 (${memory_percent}%)</div>
                         </div>
                     </div>
                 </div>"
@@ -932,7 +932,7 @@ EOF
                         <label>GPU 사용률</label>
                         <div class=\"resource-bar bg-light\">
                             <div class=\"fill bg-$gpu_color\" data-width=\"$gpu_percent\"></div>
-                            <div class=\"label\">${gpu_percent}%</div>
+                            <div class=\"label\">${gpu_percent%.*}/100 (${gpu_percent}%)</div>
                         </div>
                     </div>
                 </div>"
@@ -982,14 +982,14 @@ EOF
                         <label>CPU 사용률</label>
                         <div class=\"resource-bar bg-light\">
                             <div class=\"fill bg-$cpu_color\" data-width=\"$cpu_percent\"></div>
-                            <div class=\"label\">${cpu_percent}%</div>
+                            <div class=\"label\">${cpu_percent%.*}/100 (${cpu_percent}%)</div>
                         </div>
                     </div>
                     <div class=\"col-md-4\">
                         <label>메모리 사용률</label>
                         <div class=\"resource-bar bg-light\">
                             <div class=\"fill bg-$memory_color\" data-width=\"$memory_percent\"></div>
-                            <div class=\"label\">${memory_percent}%</div>
+                            <div class=\"label\">${memory_percent%.*}/100 (${memory_percent}%)</div>
                         </div>
                     </div>
                 </div>"
@@ -1005,7 +1005,7 @@ EOF
                         <label>GPU 사용률</label>
                         <div class=\"resource-bar bg-light\">
                             <div class=\"fill bg-$gpu_color\" data-width=\"$gpu_percent\"></div>
-                            <div class=\"label\">${gpu_percent}%</div>
+                            <div class=\"label\">${gpu_percent%.*}/100 (${gpu_percent}%)</div>
                         </div>
                     </div>
                 </div>"

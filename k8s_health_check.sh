@@ -1162,11 +1162,11 @@ generate_html_report() {
                             <div class="resource-section">
                                 <div class="resource-header">
                                     <span class="resource-label"><i class="fas fa-anchor me-2"></i>Harbor 디스크 사용량</span>
-                                    <span class="resource-value" id="harbor-usage-text">-/-</span>
+                                    <span class="resource-value" id="harbor-usage-text">HARBOR_USAGE_TEXT</span>
                                 </div>
                                 <div class="progress-section">
                                     <div class="progress" style="height: 8px;">
-                                        <div class="progress-bar" id="harbor-progress" role="progressbar" style="width: 0%"></div>
+                                        <div class="progress-bar" id="harbor-progress" role="progressbar" style="width: HARBOR_PROGRESS_WIDTH%; background-color: HARBOR_PROGRESS_COLOR;"></div>
                                     </div>
                                 </div>
                                 <div class="chart-container">
@@ -1180,11 +1180,11 @@ generate_html_report() {
                             <div class="resource-section">
                                 <div class="resource-header">
                                     <span class="resource-label"><i class="fas fa-database me-2"></i>Minio 디스크 사용량</span>
-                                    <span class="resource-value" id="minio-usage-text">-/-</span>
+                                    <span class="resource-value" id="minio-usage-text">MINIO_USAGE_TEXT</span>
                                 </div>
                                 <div class="progress-section">
                                     <div class="progress" style="height: 8px;">
-                                        <div class="progress-bar" id="minio-progress" role="progressbar" style="width: 0%"></div>
+                                        <div class="progress-bar" id="minio-progress" role="progressbar" style="width: MINIO_PROGRESS_WIDTH%; background-color: MINIO_PROGRESS_COLOR;"></div>
                                     </div>
                                 </div>
                                 <div class="chart-container">
@@ -1386,23 +1386,11 @@ generate_html_report() {
             
             // Function to create storage disk usage charts
             function createStorageChart() {
-                // Get Harbor disk usage data from the results
-                const harborStatus = getCheckStatus('harbor_disk');
-                const harborDetails = getCheckDetails('harbor_disk');
-                const harborPercent = extractUsagePercent(harborDetails);
-                
-                // Get Minio disk usage data from the results
-                const minioStatus = getCheckStatus('minio_disk');
-                const minioDetails = getCheckDetails('minio_disk');
-                const minioPercent = extractUsagePercent(minioDetails);
-                
-                // Create Harbor chart
+                // Create Harbor chart with injected data
                 createDiskChart('harbor-chart', harborPercent, 'Harbor');
-                updateStorageDisplay('harbor', harborPercent, harborDetails);
                 
-                // Create Minio chart
+                // Create Minio chart with injected data
                 createDiskChart('minio-chart', minioPercent, 'Minio');
-                updateStorageDisplay('minio', minioPercent, minioDetails);
             }
             
             function getCheckStatus(checkName) {
@@ -1416,6 +1404,10 @@ generate_html_report() {
                 if (checkName === 'minio_disk') return 'MINIO_DETAILS';
                 return 'No data available';
             }
+            
+            // Use actual data injected during HTML generation
+            const harborPercent = HARBOR_CHART_PERCENT;
+            const minioPercent = MINIO_CHART_PERCENT;
             
             function extractUsagePercent(details) {
                 const match = details.match(/([0-9]+)%/);
@@ -1522,10 +1514,68 @@ EOF
     local minio_status="${CHECK_RESULTS[minio_disk]:-N/A}"
     local minio_details="${CHECK_DETAILS[minio_disk]:-Minio disk usage not available}"
     
+    # Extract percentage and format data for Harbor
+    local harbor_percent=0
+    local harbor_text="N/A"
+    local harbor_color="#6c757d"
+    if [[ "$harbor_details" =~ ([0-9]+)% ]]; then
+        harbor_percent="${BASH_REMATCH[1]}"
+        if [[ "$harbor_details" =~ ([0-9.]+[KMGT])/([0-9.]+[KMGT]) ]]; then
+            harbor_text="$harbor_percent% (${BASH_REMATCH[1]}/${BASH_REMATCH[2]})"
+        else
+            harbor_text="$harbor_percent%"
+        fi
+        
+        # Set color based on percentage
+        if [[ $harbor_percent -ge 90 ]]; then
+            harbor_color="#dc3545"  # Red
+        elif [[ $harbor_percent -ge 80 ]]; then
+            harbor_color="#fd7e14"  # Orange  
+        elif [[ $harbor_percent -ge 50 ]]; then
+            harbor_color="#ffc107"  # Yellow
+        else
+            harbor_color="#28a745"  # Green
+        fi
+    fi
+    
+    # Extract percentage and format data for Minio
+    local minio_percent=0
+    local minio_text="N/A"
+    local minio_color="#6c757d"
+    if [[ "$minio_details" =~ ([0-9]+)% ]]; then
+        minio_percent="${BASH_REMATCH[1]}"
+        if [[ "$minio_details" =~ ([0-9.]+[KMGT])/([0-9.]+[KMGT]) ]]; then
+            minio_text="$minio_percent% (${BASH_REMATCH[1]}/${BASH_REMATCH[2]})"
+        else
+            minio_text="$minio_percent%"
+        fi
+        
+        # Set color based on percentage
+        if [[ $minio_percent -ge 90 ]]; then
+            minio_color="#dc3545"  # Red
+        elif [[ $minio_percent -ge 80 ]]; then
+            minio_color="#fd7e14"  # Orange
+        elif [[ $minio_percent -ge 50 ]]; then
+            minio_color="#ffc107"  # Yellow
+        else
+            minio_color="#28a745"  # Green
+        fi
+    fi
+    
+    # Replace all placeholders
     sed -i "s/HARBOR_STATUS/$harbor_status/g" "$html_file"
     sed -i "s/HARBOR_DETAILS/$harbor_details/g" "$html_file"
+    sed -i "s/HARBOR_USAGE_TEXT/$harbor_text/g" "$html_file"
+    sed -i "s/HARBOR_PROGRESS_WIDTH/$harbor_percent/g" "$html_file"
+    sed -i "s/HARBOR_PROGRESS_COLOR/$harbor_color/g" "$html_file"
+    sed -i "s/HARBOR_CHART_PERCENT/$harbor_percent/g" "$html_file"
+    
     sed -i "s/MINIO_STATUS/$minio_status/g" "$html_file"
     sed -i "s/MINIO_DETAILS/$minio_details/g" "$html_file"
+    sed -i "s/MINIO_USAGE_TEXT/$minio_text/g" "$html_file"
+    sed -i "s/MINIO_PROGRESS_WIDTH/$minio_percent/g" "$html_file"
+    sed -i "s/MINIO_PROGRESS_COLOR/$minio_color/g" "$html_file"
+    sed -i "s/MINIO_CHART_PERCENT/$minio_percent/g" "$html_file"
     
     # Generate node resources content
     local node_content=""

@@ -688,82 +688,278 @@ generate_html_report() {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kubernetes 클러스터 상태 보고서</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.min.js"></script>
     <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-attachment: fixed;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        .dashboard-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 25px 45px rgba(0, 0, 0, 0.1);
+            margin: 20px;
+            padding: 30px;
+        }
         .status-icon {
             font-size: 1.2em;
             margin-right: 8px;
         }
         .resource-bar {
             height: 25px;
-            border-radius: 5px;
+            border-radius: 12px;
             position: relative;
             overflow: hidden;
+            background: #e9ecef;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
         }
         .resource-bar .fill {
             height: 100%;
-            transition: width 0.5s ease-in-out;
-            border-radius: 5px;
+            transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 12px;
+            background: linear-gradient(45deg, var(--fill-color), var(--fill-color-light));
         }
         .resource-bar .label {
             position: absolute;
             width: 100%;
             text-align: center;
             line-height: 25px;
-            font-weight: bold;
-            color: white;
-            text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
+            font-weight: 600;
+            color: #2d3436;
             z-index: 1;
+            font-size: 0.85em;
         }
-        .bg-success-light { background-color: #d1e7dd; }
-        .bg-warning-light { background-color: #fff3cd; }
-        .bg-danger-light { background-color: #f8d7da; }
-        .chart-container {
+        .advanced-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            border: none;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            margin-bottom: 25px;
+            overflow: hidden;
+        }
+        .advanced-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12);
+        }
+        .advanced-card .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            font-weight: 600;
+            padding: 20px 25px;
+        }
+        .node-dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        .node-item {
+            background: white;
+            border-radius: 16px;
+            padding: 25px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(102, 126, 234, 0.1);
+            transition: all 0.3s ease;
+        }
+        .node-item:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.12);
+            border-color: rgba(102, 126, 234, 0.3);
+        }
+        .node-title {
+            font-size: 1.4em;
+            font-weight: 700;
+            color: #2d3436;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .resource-section {
             margin: 20px 0;
         }
-        .node-card {
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 15px;
+        .resource-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 15px;
-            background-color: #f8f9fa;
+        }
+        .resource-label {
+            font-weight: 600;
+            color: #636e72;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .resource-value {
+            font-size: 1.1em;
+            font-weight: 700;
+        }
+        .chart-container {
+            position: relative;
+            height: 120px;
+            margin: 15px 0;
+        }
+        .chart-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            align-items: center;
+        }
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.06);
+            border: 1px solid rgba(102, 126, 234, 0.1);
+            transition: all 0.3s ease;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.1);
+        }
+        .stat-icon {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .stat-value {
+            font-size: 2.2em;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        .stat-label {
+            color: #636e72;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 0.85em;
         }
         .explanation-box {
-            background-color: #e9ecef;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
             border-left: 4px solid #6c757d;
-            padding: 10px 15px;
-            margin-top: 10px;
-            border-radius: 0 4px 4px 0;
+            padding: 15px 20px;
+            margin-top: 15px;
+            border-radius: 0 12px 12px 0;
+            font-size: 0.9em;
         }
         .explanation-box.danger {
             border-left-color: #dc3545;
-            background-color: #f8d7da;
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
         }
         .explanation-box.warning {
             border-left-color: #ffc107;
-            background-color: #fff3cd;
+            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+        }
+        .check-item {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            border-left: 4px solid #28a745;
+            transition: all 0.3s ease;
+        }
+        .check-item.warning {
+            border-left-color: #ffc107;
+        }
+        .check-item.danger {
+            border-left-color: #dc3545;
+        }
+        .check-item:hover {
+            transform: translateX(5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
+        @media (max-width: 768px) {
+            .chart-grid {
+                grid-template-columns: 1fr;
+            }
+            .node-dashboard {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container-fluid">
-        <div class="row">
-            <div class="col-12">
-                <div class="text-center py-4">
-                    <h1 class="display-4">🚀 Kubernetes 클러스터 상태 보고서</h1>
-                    <p class="lead">생성 시간: REPORT_TIMESTAMP</p>
+    <div class="dashboard-container">
+        <!-- Header Section -->
+        <div class="text-center mb-5">
+            <h1 class="display-3 fw-bold mb-3" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">
+                <i class="fas fa-rocket me-3"></i>Kubernetes 클러스터 대시보드
+            </h1>
+            <p class="lead text-muted fs-5">생성 시간: REPORT_TIMESTAMP</p>
+        </div>
+
+        <!-- Summary Statistics -->
+        <div class="summary-stats">
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-clipboard-check"></i>
+                </div>
+                <div class="stat-value text-primary">SUCCESS_COUNT</div>
+                <div class="stat-label">성공한 점검</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div class="stat-value text-warning">WARNING_COUNT</div>
+                <div class="stat-label">경고 점검</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-times-circle"></i>
+                </div>
+                <div class="stat-value text-danger">FAILED_COUNT</div>
+                <div class="stat-label">실패한 점검</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-chart-pie"></i>
+                </div>
+                <div class="stat-value OVERALL_STATUS_CLASS">OVERALL_STATUS</div>
+                <div class="stat-label">전체 상태</div>
+            </div>
+        </div>
+
+        <!-- Node Resources Dashboard -->
+        <div class="advanced-card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i class="fas fa-server me-2"></i>노드별 리소스 현황
+                </h3>
+            </div>
+            <div class="card-body">
+                <div class="node-dashboard" id="node-resources">
+                    NODE_RESOURCES_CONTENT
                 </div>
             </div>
         </div>
 
-        <!-- Summary Dashboard -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title mb-0">📊 종합 상태</h3>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
+        <!-- Detailed Check Results -->
+        <div class="advanced-card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i class="fas fa-clipboard-list me-2"></i>상세 점검 결과
+                </h3>
+            </div>
+            <div class="card-body">
+                CHECK_RESULTS_CONTENT
                             <div class="col-md-3">
                                 <div class="text-center">
                                     <div class="alert alert-OVERALL_STATUS_CLASS" role="alert">
@@ -836,23 +1032,134 @@ generate_html_report() {
             </div>
         </div>
 
-        <div class="row">
-            <div class="col-12 text-center text-muted">
-                <p><small>이 보고서는 자동으로 생성되었습니다 | DevOps Team</small></p>
-            </div>
+        <!-- Footer -->
+        <div class="text-center mt-5 pt-4" style="border-top: 1px solid #e9ecef;">
+            <p class="text-muted mb-2">
+                <i class="fas fa-code me-2"></i>
+                이 보고서는 자동으로 생성되었습니다
+            </p>
+            <p class="text-muted small">
+                <i class="fas fa-users me-1"></i>DevOps Team | 
+                <i class="fas fa-clock me-1"></i>REPORT_TIMESTAMP
+            </p>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Animate progress bars on page load
+        // Initialize charts and animations
         document.addEventListener('DOMContentLoaded', function() {
+            // Animate progress bars
             const bars = document.querySelectorAll('.resource-bar .fill');
-            bars.forEach(bar => {
-                const width = bar.dataset.width;
+            bars.forEach((bar, index) => {
                 setTimeout(() => {
-                    bar.style.width = width + '%';
-                }, 500);
+                    bar.style.transform = 'scaleX(1)';
+                    bar.style.transformOrigin = 'left';
+                }, index * 100);
+            });
+            
+            // Create donut charts for all nodes
+            const chartOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const labels = ['사용', '여유'];
+                                return labels[context.dataIndex] + ': ' + context.parsed + '%';
+                            }
+                        }
+                    }
+                },
+                cutout: '65%',
+                animation: {
+                    animateRotate: true,
+                    animateScale: true,
+                    duration: 1500
+                }
+            };
+            
+            // Initialize all canvas elements for charts
+            document.querySelectorAll('canvas[id*=\"-chart-\"]').forEach(canvas => {
+                const chartId = canvas.id;
+                const chartType = chartId.split('-')[0]; // pod, cpu, memory, gpu
+                
+                // Get the percentage from the canvas context or data attributes
+                let percentage = 0;
+                let color = '#28a745';
+                
+                // Try to find the resource value from the parent container
+                const resourceSection = canvas.closest('.resource-section');
+                if (resourceSection) {
+                    const valueElement = resourceSection.querySelector('.resource-value');
+                    if (valueElement) {
+                        const valueText = valueElement.textContent;
+                        if (valueText.includes('/100')) {
+                            percentage = parseInt(valueText.split('/')[0]);
+                            color = valueElement.style.color || '#28a745';
+                        } else if (valueText.includes('/')) {
+                            // For pod usage like "35/110"
+                            const [used, total] = valueText.split('/').map(n => parseInt(n));
+                            percentage = Math.round((used / total) * 100);
+                        }
+                    }
+                }
+                
+                // Create the chart
+                new Chart(canvas, {
+                    type: 'doughnut',
+                    data: {
+                        datasets: [{
+                            data: [percentage, 100 - percentage],
+                            backgroundColor: [color, '#e9ecef'],
+                            borderWidth: 0,
+                            borderRadius: 4
+                        }]
+                    },
+                    options: chartOptions
+                });
+                
+                // Add center text showing percentage
+                const ctx = canvas.getContext('2d');
+                const centerText = percentage + '%';
+                
+                // Override chart draw to add center text
+                Chart.register({
+                    id: 'centerText',
+                    beforeDraw: (chart) => {
+                        if (chart.canvas.id === chartId) {
+                            const width = chart.width;
+                            const height = chart.height;
+                            const ctx = chart.ctx;
+                            
+                            ctx.restore();
+                            const fontSize = (height / 100) * 16;
+                            ctx.font = `bold ${fontSize}px Inter, Arial, sans-serif`;
+                            ctx.textBaseline = 'middle';
+                            ctx.fillStyle = color;
+                            
+                            const text = centerText;
+                            const textX = Math.round((width - ctx.measureText(text).width) / 2);
+                            const textY = height / 2;
+                            
+                            ctx.fillText(text, textX, textY);
+                            ctx.save();
+                        }
+                    }
+                });
+            });
+            
+            // Add hover effects to cards
+            document.querySelectorAll('.node-item, .stat-card, .advanced-card').forEach(card => {
+                card.addEventListener('mouseenter', function() {
+                    this.style.transform = 'translateY(-5px)';
+                });
+                
+                card.addEventListener('mouseleave', function() {
+                    this.style.transform = 'translateY(0)';
+                });
             });
         });
     </script>
@@ -890,33 +1197,83 @@ EOF
             [[ ! "$cpu_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && cpu_percent="0.0"
             [[ ! "$memory_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && memory_percent="0.0"
             
-            # Determine color based on usage
-            local pod_color=$(get_usage_color "$pod_percent")
-            local cpu_color=$(get_usage_color "$cpu_percent")
-            local memory_color=$(get_usage_color "$memory_percent")
+            # Determine color based on usage (0-50% green, 50-70% yellow, 70%+ red)
+            local cpu_color_hex="#28a745"
+            local memory_color_hex="#28a745"
+            local pod_color_hex="#28a745"
             
-            node_content+="<div class=\"node-card\">
-                <h5>📦 $node_name</h5>
-                <div class=\"row\">
-                    <div class=\"col-md-4\">
-                        <label>파드 사용률</label>
-                        <div class=\"resource-bar bg-light\">
-                            <div class=\"fill bg-$pod_color\" data-width=\"$pod_percent\"></div>
-                            <div class=\"label\">$pod_count/$max_pods (${pod_percent}%)</div>
+            local cpu_num=$(echo "$cpu_percent" | cut -d. -f1)
+            local memory_num=$(echo "$memory_percent" | cut -d. -f1)
+            local pod_num=$(echo "$pod_percent" | cut -d. -f1)
+            
+            if [[ $cpu_num -ge 70 ]]; then cpu_color_hex="#dc3545"
+            elif [[ $cpu_num -ge 50 ]]; then cpu_color_hex="#ffc107"; fi
+            
+            if [[ $memory_num -ge 70 ]]; then memory_color_hex="#dc3545"
+            elif [[ $memory_num -ge 50 ]]; then memory_color_hex="#ffc107"; fi
+            
+            if [[ $pod_num -ge 70 ]]; then pod_color_hex="#dc3545"
+            elif [[ $pod_num -ge 50 ]]; then pod_color_hex="#ffc107"; fi
+            
+            node_content+="<div class=\"node-item\">
+                <div class=\"node-title\">
+                    <i class=\"fas fa-server\"></i>
+                    $node_name
+                </div>
+                
+                <!-- Pod Usage -->
+                <div class=\"resource-section\">
+                    <div class=\"resource-header\">
+                        <span class=\"resource-label\"><i class=\"fas fa-cube me-2\"></i>파드 사용률</span>
+                        <span class=\"resource-value\" style=\"color: $pod_color_hex;\">$pod_count/$max_pods</span>
+                    </div>
+                    <div class=\"chart-grid\">
+                        <div>
+                            <div class=\"resource-bar\">
+                                <div class=\"fill\" style=\"background: $pod_color_hex; width: ${pod_percent}%;\"></div>
+                                <div class=\"label\">${pod_percent}% 사용</div>
+                            </div>
+                        </div>
+                        <div class=\"chart-container\">
+                            <canvas id=\"pod-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
                         </div>
                     </div>
-                    <div class=\"col-md-4\">
-                        <label>CPU 사용률</label>
-                        <div class=\"resource-bar bg-light\">
-                            <div class=\"fill bg-$cpu_color\" data-width=\"$cpu_percent\"></div>
-                            <div class=\"label\">${cpu_percent%.*}/100 (${cpu_percent}%)</div>
+                </div>
+                
+                <!-- CPU Usage -->
+                <div class=\"resource-section\">
+                    <div class=\"resource-header\">
+                        <span class=\"resource-label\"><i class=\"fas fa-microchip me-2\"></i>CPU 사용률</span>
+                        <span class=\"resource-value\" style=\"color: $cpu_color_hex;\">${cpu_percent%.*}/100</span>
+                    </div>
+                    <div class=\"chart-grid\">
+                        <div>
+                            <div class=\"resource-bar\">
+                                <div class=\"fill\" style=\"background: $cpu_color_hex; width: ${cpu_percent}%;\"></div>
+                                <div class=\"label\">${cpu_percent}% 사용, $((100 - ${cpu_percent%.*}))% 여유</div>
+                            </div>
+                        </div>
+                        <div class=\"chart-container\">
+                            <canvas id=\"cpu-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
                         </div>
                     </div>
-                    <div class=\"col-md-4\">
-                        <label>메모리 사용률</label>
-                        <div class=\"resource-bar bg-light\">
-                            <div class=\"fill bg-$memory_color\" data-width=\"$memory_percent\"></div>
-                            <div class=\"label\">${memory_percent%.*}/100 (${memory_percent}%)</div>
+                </div>
+                
+                <!-- Memory Usage -->
+                <div class=\"resource-section\">
+                    <div class=\"resource-header\">
+                        <span class=\"resource-label\"><i class=\"fas fa-memory me-2\"></i>메모리 사용률</span>
+                        <span class=\"resource-value\" style=\"color: $memory_color_hex;\">${memory_percent%.*}/100</span>
+                    </div>
+                    <div class=\"chart-grid\">
+                        <div>
+                            <div class=\"resource-bar\">
+                                <div class=\"fill\" style=\"background: $memory_color_hex; width: ${memory_percent}%;\"></div>
+                                <div class=\"label\">${memory_percent}% 사용, $((100 - ${memory_percent%.*}))% 여유</div>
+                            </div>
+                        </div>
+                        <div class=\"chart-container\">
+                            <canvas id=\"memory-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
                         </div>
                     </div>
                 </div>"
@@ -925,14 +1282,28 @@ EOF
             if echo "$node_data" | jq -e '.gpu_percent' >/dev/null 2>&1; then
                 local gpu_percent=$(echo "$node_data" | jq -r '.gpu_percent // "0.0"' 2>/dev/null || echo "0.0")
                 [[ ! "$gpu_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && gpu_percent="0.0"
-                local gpu_color=$(get_usage_color "$gpu_percent")
+                
+                local gpu_color_hex="#28a745"
+                local gpu_num=$(echo "$gpu_percent" | cut -d. -f1)
+                if [[ $gpu_num -ge 70 ]]; then gpu_color_hex="#dc3545"
+                elif [[ $gpu_num -ge 50 ]]; then gpu_color_hex="#ffc107"; fi
+                
                 node_content+="
-                <div class=\"row mt-2\">
-                    <div class=\"col-md-4\">
-                        <label>GPU 사용률</label>
-                        <div class=\"resource-bar bg-light\">
-                            <div class=\"fill bg-$gpu_color\" data-width=\"$gpu_percent\"></div>
-                            <div class=\"label\">${gpu_percent%.*}/100 (${gpu_percent}%)</div>
+                <!-- GPU Usage -->
+                <div class=\"resource-section\">
+                    <div class=\"resource-header\">
+                        <span class=\"resource-label\"><i class=\"fas fa-microchip me-2\"></i>GPU 사용률</span>
+                        <span class=\"resource-value\" style=\"color: $gpu_color_hex;\">${gpu_percent%.*}/100</span>
+                    </div>
+                    <div class=\"chart-grid\">
+                        <div>
+                            <div class=\"resource-bar\">
+                                <div class=\"fill\" style=\"background: $gpu_color_hex; width: ${gpu_percent}%;\"></div>
+                                <div class=\"label\">${gpu_percent}% 사용, $((100 - ${gpu_percent%.*}))% 여유</div>
+                            </div>
+                        </div>
+                        <div class=\"chart-container\">
+                            <canvas id=\"gpu-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
                         </div>
                     </div>
                 </div>"
@@ -963,33 +1334,83 @@ EOF
             [[ ! "$cpu_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && cpu_percent="0.0"
             [[ ! "$memory_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && memory_percent="0.0"
             
-            # Determine color based on usage
-            local pod_color=$(get_usage_color "$pod_percent")
-            local cpu_color=$(get_usage_color "$cpu_percent")
-            local memory_color=$(get_usage_color "$memory_percent")
+            # Determine color based on usage (0-50% green, 50-70% yellow, 70%+ red)
+            local cpu_color_hex="#28a745"
+            local memory_color_hex="#28a745"
+            local pod_color_hex="#28a745"
             
-            node_content+="<div class=\"node-card\">
-                <h5>📦 $node_name</h5>
-                <div class=\"row\">
-                    <div class=\"col-md-4\">
-                        <label>파드 사용률</label>
-                        <div class=\"resource-bar bg-light\">
-                            <div class=\"fill bg-$pod_color\" data-width=\"$pod_percent\"></div>
-                            <div class=\"label\">$pod_count/$max_pods (${pod_percent}%)</div>
+            local cpu_num=$(echo "$cpu_percent" | cut -d. -f1)
+            local memory_num=$(echo "$memory_percent" | cut -d. -f1)
+            local pod_num=$(echo "$pod_percent" | cut -d. -f1)
+            
+            if [[ $cpu_num -ge 70 ]]; then cpu_color_hex="#dc3545"
+            elif [[ $cpu_num -ge 50 ]]; then cpu_color_hex="#ffc107"; fi
+            
+            if [[ $memory_num -ge 70 ]]; then memory_color_hex="#dc3545"
+            elif [[ $memory_num -ge 50 ]]; then memory_color_hex="#ffc107"; fi
+            
+            if [[ $pod_num -ge 70 ]]; then pod_color_hex="#dc3545"
+            elif [[ $pod_num -ge 50 ]]; then pod_color_hex="#ffc107"; fi
+            
+            node_content+="<div class=\"node-item\">
+                <div class=\"node-title\">
+                    <i class=\"fas fa-server\"></i>
+                    $node_name
+                </div>
+                
+                <!-- Pod Usage -->
+                <div class=\"resource-section\">
+                    <div class=\"resource-header\">
+                        <span class=\"resource-label\"><i class=\"fas fa-cube me-2\"></i>파드 사용률</span>
+                        <span class=\"resource-value\" style=\"color: $pod_color_hex;\">$pod_count/$max_pods</span>
+                    </div>
+                    <div class=\"chart-grid\">
+                        <div>
+                            <div class=\"resource-bar\">
+                                <div class=\"fill\" style=\"background: $pod_color_hex; width: ${pod_percent}%;\"></div>
+                                <div class=\"label\">${pod_percent}% 사용</div>
+                            </div>
+                        </div>
+                        <div class=\"chart-container\">
+                            <canvas id=\"pod-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
                         </div>
                     </div>
-                    <div class=\"col-md-4\">
-                        <label>CPU 사용률</label>
-                        <div class=\"resource-bar bg-light\">
-                            <div class=\"fill bg-$cpu_color\" data-width=\"$cpu_percent\"></div>
-                            <div class=\"label\">${cpu_percent%.*}/100 (${cpu_percent}%)</div>
+                </div>
+                
+                <!-- CPU Usage -->
+                <div class=\"resource-section\">
+                    <div class=\"resource-header\">
+                        <span class=\"resource-label\"><i class=\"fas fa-microchip me-2\"></i>CPU 사용률</span>
+                        <span class=\"resource-value\" style=\"color: $cpu_color_hex;\">${cpu_percent%.*}/100</span>
+                    </div>
+                    <div class=\"chart-grid\">
+                        <div>
+                            <div class=\"resource-bar\">
+                                <div class=\"fill\" style=\"background: $cpu_color_hex; width: ${cpu_percent}%;\"></div>
+                                <div class=\"label\">${cpu_percent}% 사용, $((100 - ${cpu_percent%.*}))% 여유</div>
+                            </div>
+                        </div>
+                        <div class=\"chart-container\">
+                            <canvas id=\"cpu-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
                         </div>
                     </div>
-                    <div class=\"col-md-4\">
-                        <label>메모리 사용률</label>
-                        <div class=\"resource-bar bg-light\">
-                            <div class=\"fill bg-$memory_color\" data-width=\"$memory_percent\"></div>
-                            <div class=\"label\">${memory_percent%.*}/100 (${memory_percent}%)</div>
+                </div>
+                
+                <!-- Memory Usage -->
+                <div class=\"resource-section\">
+                    <div class=\"resource-header\">
+                        <span class=\"resource-label\"><i class=\"fas fa-memory me-2\"></i>메모리 사용률</span>
+                        <span class=\"resource-value\" style=\"color: $memory_color_hex;\">${memory_percent%.*}/100</span>
+                    </div>
+                    <div class=\"chart-grid\">
+                        <div>
+                            <div class=\"resource-bar\">
+                                <div class=\"fill\" style=\"background: $memory_color_hex; width: ${memory_percent}%;\"></div>
+                                <div class=\"label\">${memory_percent}% 사용, $((100 - ${memory_percent%.*}))% 여유</div>
+                            </div>
+                        </div>
+                        <div class=\"chart-container\">
+                            <canvas id=\"memory-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
                         </div>
                     </div>
                 </div>"
@@ -998,14 +1419,28 @@ EOF
             if echo "$node_data" | jq -e '.gpu_percent' >/dev/null 2>&1; then
                 local gpu_percent=$(echo "$node_data" | jq -r '.gpu_percent // "0.0"' 2>/dev/null || echo "0.0")
                 [[ ! "$gpu_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && gpu_percent="0.0"
-                local gpu_color=$(get_usage_color "$gpu_percent")
+                
+                local gpu_color_hex="#28a745"
+                local gpu_num=$(echo "$gpu_percent" | cut -d. -f1)
+                if [[ $gpu_num -ge 70 ]]; then gpu_color_hex="#dc3545"
+                elif [[ $gpu_num -ge 50 ]]; then gpu_color_hex="#ffc107"; fi
+                
                 node_content+="
-                <div class=\"row mt-2\">
-                    <div class=\"col-md-4\">
-                        <label>GPU 사용률</label>
-                        <div class=\"resource-bar bg-light\">
-                            <div class=\"fill bg-$gpu_color\" data-width=\"$gpu_percent\"></div>
-                            <div class=\"label\">${gpu_percent%.*}/100 (${gpu_percent}%)</div>
+                <!-- GPU Usage -->
+                <div class=\"resource-section\">
+                    <div class=\"resource-header\">
+                        <span class=\"resource-label\"><i class=\"fas fa-microchip me-2\"></i>GPU 사용률</span>
+                        <span class=\"resource-value\" style=\"color: $gpu_color_hex;\">${gpu_percent%.*}/100</span>
+                    </div>
+                    <div class=\"chart-grid\">
+                        <div>
+                            <div class=\"resource-bar\">
+                                <div class=\"fill\" style=\"background: $gpu_color_hex; width: ${gpu_percent}%;\"></div>
+                                <div class=\"label\">${gpu_percent}% 사용, $((100 - ${gpu_percent%.*}))% 여유</div>
+                            </div>
+                        </div>
+                        <div class=\"chart-container\">
+                            <canvas id=\"gpu-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
                         </div>
                     </div>
                 </div>"

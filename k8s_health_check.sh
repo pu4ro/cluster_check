@@ -1964,8 +1964,8 @@ generate_log_report() {
         echo "🔍 상세 점검 결과"
         echo "----------------------------------------"
         
-        local check_names=("nodes" "pods" "deployments" "services" "storage" "ingress" "url_check")
-        local check_titles=("노드 상태" "파드 상태" "디플로이먼트 상태" "서비스 엔드포인트" "스토리지 (PV/PVC)" "Ingress 백엔드 연결" "URL 연결 테스트")
+        local check_names=("nodes" "pods" "deployments" "services" "storage" "rook_ceph" "ingress" "harbor_disk" "minio_disk" "url_check")
+        local check_titles=("노드 상태" "파드 상태" "디플로이먼트 상태" "서비스 엔드포인트" "스토리지 (PV/PVC)" "Rook-Ceph 상태" "Ingress 백엔드 연결" "Harbor 디스크 사용량" "Minio 디스크 사용량" "URL 연결 테스트")
         
         for i in "${!check_names[@]}"; do
             local check_name="${check_names[$i]}"

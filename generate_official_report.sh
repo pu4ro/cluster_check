@@ -611,15 +611,15 @@ add_cover_page() {
         <div class="cover-info">
             <div class="cover-info-row">
                 <span class="cover-label">대상 기관:</span>
-                <span>${ORGANIZATION}</span>
+                <span>&nbsp;</span>
             </div>
             <div class="cover-info-row">
                 <span class="cover-label">작성자:</span>
-                <span>${AUTHOR_NAME}</span>
+                <span>&nbsp;</span>
             </div>
             <div class="cover-info-row">
                 <span class="cover-label">작성일:</span>
-                <span>${REPORT_DATE}</span>
+                <span>&nbsp;</span>
             </div>
         </div>
 
@@ -686,7 +686,7 @@ add_executive_summary() {
 
     <h3><span class="section-number">1.1.</span>점검 목적</h3>
     <p>
-    본 보고서는 ${ORGANIZATION}의 Kubernetes 클러스터 및 MakinaRocks Runway 플랫폼의 운영 안정성, 구성 적합성, 리스크 요인 및 개선사항을 점검한 결과를 문서화합니다.
+    본 보고서는 Kubernetes 클러스터 및 MakinaRocks Runway 플랫폼의 운영 안정성, 구성 적합성, 리스크 요인 및 개선사항을 점검한 결과를 문서화합니다.
     점검을 통해 현재 인프라의 상태를 객관적으로 평가하고, 잠재적 위험 요소를 식별하며, 향후 개선 방향을 제시하는 것을 목적으로 합니다.
     </p>
 
@@ -704,9 +704,6 @@ add_executive_summary() {
 
     <h3><span class="section-number">1.3.</span>핵심 결론</h3>
     <div class="summary-box">
-        <div class="summary-item">
-            <span class="summary-label">점검 일시:</span>${REPORT_DATE}
-        </div>
         <div class="summary-item">
             <span class="summary-label">총 점검 항목:</span>${TOTAL_CHECKS}개
         </div>
@@ -1244,10 +1241,6 @@ add_final_conclusion() {
         </tbody>
     </table>
 
-    <div style="margin-top: 50px; text-align: center;">
-        <p style="font-size: 14pt;"><strong>${ORGANIZATION}</strong></p>
-        <p style="margin-top: 10px;">${REPORT_DATE}</p>
-    </div>
 CONCLUSIONEOF
 }
 

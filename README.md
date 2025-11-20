@@ -36,15 +36,18 @@
 
 ```
 cluster_check/
-├── k8s_health_check.sh        # 메인 점검 스크립트 ⭐
-├── k8s_check.sh               # 기본 점검 스크립트
-├── k8s_check_advanced.sh      # 레거시 고도화 스크립트
-├── config.conf                # 설정 파일 (자동 생성)
-├── reports/                   # 리포트 저장 디렉토리
-│   ├── k8s_check_*.log       # 상세 로그
-│   ├── k8s_report_*.html     # HTML 리포트
-│   └── k8s_report_*.json     # JSON 데이터
-└── README.md                  # 이 파일
+├── k8s_health_check.sh         # 메인 점검 스크립트 ⭐
+├── generate_official_report.sh # 공공기관용 공식 보고서 생성 ⭐⭐
+├── dashboard.sh                # 실시간 터미널 대시보드
+├── k8s_check.sh                # 기본 점검 스크립트
+├── k8s_check_advanced.sh       # 레거시 고도화 스크립트
+├── config.conf                 # 설정 파일 (자동 생성)
+├── reports/                    # 리포트 저장 디렉토리
+│   ├── k8s_check_*.log        # 상세 로그
+│   ├── k8s_report_*.html      # HTML 대시보드
+│   ├── k8s_report_*.json      # JSON 데이터
+│   └── official_report_*.html # 공식 기술 점검 보고서
+└── README.md                   # 이 파일
 ```
 
 ## 🛠️ 사용법
@@ -78,6 +81,43 @@ DEBUG=true ./k8s_health_check.sh
 # 모든 옵션 보기
 ./k8s_health_check.sh --help
 ```
+
+### 📄 공식 보고서 생성 (공공기관용)
+
+공공기관용 공식 기술 점검 보고서를 생성합니다. A4 PDF 인쇄 최적화 및 흑백 출력을 지원합니다.
+
+```bash
+# 자동으로 클러스터 점검 및 보고서 생성
+./generate_official_report.sh
+
+# 기존 JSON 파일로 보고서 생성
+./generate_official_report.sh --json reports/k8s_health_report_20250120_120000.json
+
+# 기관명 및 작성자 지정
+./generate_official_report.sh --org "한국수자원공사" --author "김철수"
+
+# 문서 버전 지정
+./generate_official_report.sh --version "2.0" --author "기술운영팀"
+
+# PDF 변환 (wkhtmltopdf 필요)
+wkhtmltopdf reports/official_report_*.html reports/official_report.pdf
+```
+
+**보고서 구성:**
+1. 표지 (기관명, 작성자, 작성일, 문서 버전)
+2. 보고서 요약 (Executive Summary)
+3. 점검 항목 및 결과 요약표
+4. Kubernetes Cluster 점검 상세
+5. Runway 플랫폼 점검 상세
+6. 문제 발견 사항 (이슈 리스트)
+7. 최종 결론 및 종합 권고사항
+
+**특징:**
+- ✅ A4 PDF 인쇄 최적화 (페이지 자동 분할)
+- ✅ 흑백 출력 최적화 (회색조 기반 구분)
+- ✅ 공공기관 보고서 형식 (격식있는 표현)
+- ✅ 리스크 등급 자동 평가 (상/중/하)
+- ✅ 개선 방안 자동 제안
 
 ## ⚙️ 설정
 

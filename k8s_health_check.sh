@@ -2029,7 +2029,7 @@ generate_json_report() {
     
     # Check results
     json_data+="\"check_results\":{"
-    local check_names=("nodes" "pods" "deployments" "services" "storage" "ingress" "url_check")
+    local check_names=("nodes" "pods" "deployments" "services" "storage" "ingress" "url_check" "rook_ceph" "harbor_disk" "minio_disk")
     local first_check=true
     
     for check_name in "${check_names[@]}"; do

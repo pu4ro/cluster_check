@@ -23,9 +23,16 @@ fi
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/reports}"
 REPORT_VERSION="${REPORT_VERSION:-1.0}"
 AUTHOR_NAME="${AUTHOR_NAME:-기술운영팀}"
-ORGANIZATION="${ORGANIZATION:-한국수자원공사}"
+ORGANIZATION="${ORGANIZATION:-}"
+REPORT_DATE="${REPORT_DATE:-$(date +%Y-%m-%d)}"
 KUBECTL_TIMEOUT="${KUBECTL_TIMEOUT:-5}"
 ENABLE_GPU_MONITORING="${ENABLE_GPU_MONITORING:-true}"
+
+# Inspection confirmation info (for cover page)
+INSPECTOR_NAME="${INSPECTOR_NAME:-}"
+INSPECTOR_DEPT="${INSPECTOR_DEPT:-}"
+MANAGER_NAME="${MANAGER_NAME:-}"
+MANAGER_DEPT="${MANAGER_DEPT:-}"
 
 # Runway platform defaults (can be set in .env)
 RUNWAY_VERSION_OVERRIDE="${RUNWAY_VERSION:-}"
@@ -155,8 +162,8 @@ collect_cluster_info() {
         K8S_VERSION=$(timeout $KUBECTL_TIMEOUT kubectl version --short 2>/dev/null | grep "Server Version" | cut -d':' -f2 | xargs 2>/dev/null || echo "확인 불가")
     fi
 
-    # Cluster info (with timeout)
-    CLUSTER_ENDPOINT=$(timeout $KUBECTL_TIMEOUT kubectl cluster-info 2>/dev/null | grep "control plane" | awk '{print $NF}' 2>/dev/null || echo "확인 불가")
+    # Cluster info (with timeout) - remove ANSI color codes
+    CLUSTER_ENDPOINT=$(timeout $KUBECTL_TIMEOUT kubectl cluster-info 2>/dev/null | grep "control plane" | awk '{print $NF}' | sed 's/\x1b\[[0-9;]*m//g' 2>/dev/null || echo "확인 불가")
 
     # Node count and details (with timeout)
     NODE_COUNT=$(timeout $KUBECTL_TIMEOUT kubectl get nodes --no-headers 2>/dev/null | wc -l 2>/dev/null || echo "0")
@@ -188,15 +195,21 @@ collect_cluster_info() {
         local mem_usage_percent="0"
         local describe_output=$(timeout 5 kubectl describe node "$node_name" 2>/dev/null || echo "")
         if [[ -n "$describe_output" ]]; then
-            mem_usage_percent=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep "memory" | awk '{print $2}' | tr -d '()%' | head -1 || echo "0")
+            mem_usage_percent=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep -w "memory" | awk '{print $3}' | tr -d '()%' | head -1 || echo "0")
         fi
 
-        # Get disk usage
-        local disk_usage_percent="0"
-        local ephemeral_storage=$(echo "$node_info" | jq -r '.status.allocatable."ephemeral-storage"' 2>/dev/null || echo "")
-        if [[ -n "$ephemeral_storage" && "$ephemeral_storage" != "null" ]]; then
-            # Try to get disk usage from node conditions or filesystem
-            disk_usage_percent=$(echo "$describe_output" | grep -i "disk.*pressure" | grep -q "False" && echo "0" || echo "N/A")
+        # Get disk usage from ephemeral-storage in Allocated resources
+        local disk_usage_percent="N/A"
+        if [[ -n "$describe_output" ]]; then
+            local ephemeral_usage=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep -w "ephemeral-storage" | awk '{print $3}' | tr -d '()%' | head -1 2>/dev/null || echo "")
+            if [[ -n "$ephemeral_usage" && "$ephemeral_usage" =~ ^[0-9]+$ ]]; then
+                disk_usage_percent="$ephemeral_usage"
+            else
+                # If ephemeral-storage is not tracked, try to check disk pressure
+                if echo "$describe_output" | grep -i "DiskPressure.*False" >/dev/null 2>&1; then
+                    disk_usage_percent="N/A"
+                fi
+            fi
         fi
 
         NODE_DETAILS+="${node_name}|${cpu}|${memory}|${max_pods}|${allocatable_mem}|${gpu_count}|${current_pods}|${mem_usage_percent}|${disk_usage_percent}"$'\n'
@@ -611,20 +624,20 @@ add_cover_page() {
         <div class="cover-info">
             <div class="cover-info-row">
                 <span class="cover-label">대상 기관:</span>
-                <span>&nbsp;</span>
+                <span>${ORGANIZATION:-&nbsp;}</span>
             </div>
             <div class="cover-info-row">
                 <span class="cover-label">작성자:</span>
-                <span>&nbsp;</span>
+                <span>${AUTHOR_NAME:-&nbsp;}</span>
             </div>
             <div class="cover-info-row">
                 <span class="cover-label">작성일:</span>
-                <span>&nbsp;</span>
+                <span>${REPORT_DATE:-&nbsp;}</span>
             </div>
         </div>
 
         <div style="margin-top: 60px; border-top: 2px solid #333; padding-top: 30px;">
-            <h3 style="text-align: center; margin-bottom: 30px; font-size: 18pt;">검토 및 승인</h3>
+            <h3 style="text-align: center; margin-bottom: 30px; font-size: 18pt;">점검 확인</h3>
             <table style="width: 100%; border-collapse: collapse; margin: 0 auto;">
                 <thead>
                     <tr>
@@ -636,21 +649,15 @@ add_cover_page() {
                 </thead>
                 <tbody>
                     <tr>
-                        <td style="border: 1px solid #333; padding: 25px; text-align: center; font-weight: bold;">작성</td>
-                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
-                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
-                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
-                    </tr>
-                    <tr>
-                        <td style="border: 1px solid #333; padding: 25px; text-align: center; font-weight: bold;">검토</td>
-                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
-                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 25px; text-align: center; font-weight: bold;">작성자</td>
+                        <td style="border: 1px solid #333; padding: 25px;">${INSPECTOR_DEPT:-&nbsp;}</td>
+                        <td style="border: 1px solid #333; padding: 25px;">${INSPECTOR_NAME:-&nbsp;}</td>
                         <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
                     </tr>
                     <tr>
-                        <td style="border: 1px solid #333; padding: 25px; text-align: center; font-weight: bold;">승인</td>
-                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
-                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 25px; text-align: center; font-weight: bold;">담당자</td>
+                        <td style="border: 1px solid #333; padding: 25px;">${MANAGER_DEPT:-&nbsp;}</td>
+                        <td style="border: 1px solid #333; padding: 25px;">${MANAGER_NAME:-&nbsp;}</td>
                         <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
                     </tr>
                 </tbody>

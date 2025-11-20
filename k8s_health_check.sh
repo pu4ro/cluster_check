@@ -359,7 +359,43 @@ check_node_status() {
         done
         log_info "총 $processed_nodes개 노드의 리소스 정보를 수집했습니다."
     fi
-    
+
+    # Check for resource threshold violations (80%)
+    local high_memory_nodes=""
+    local high_pod_nodes=""
+    local high_disk_nodes=""
+
+    for node_name in "${!NODE_RESOURCES[@]}"; do
+        local node_data="${NODE_RESOURCES[$node_name]}"
+
+        # Extract percentages from JSON data
+        local memory_percent=$(echo "$node_data" | grep -o '"memory_percent":"[^"]*"' | cut -d'"' -f4 | tr -d '.')
+        local pod_percent=$(echo "$node_data" | grep -o '"pod_percent":"[^"]*"' | cut -d'"' -f4 | tr -d '.')
+
+        # Check memory usage
+        if [[ -n "$memory_percent" && "$memory_percent" =~ ^[0-9]+$ && "$memory_percent" -ge 80 ]]; then
+            high_memory_nodes+="노드 '$node_name' 메모리 사용률: ${memory_percent}%. "
+        fi
+
+        # Check pod usage
+        if [[ -n "$pod_percent" && "$pod_percent" =~ ^[0-9]+$ && "$pod_percent" -ge 80 ]]; then
+            high_pod_nodes+="노드 '$node_name' Pod 사용률: ${pod_percent}%. "
+        fi
+    done
+
+    # Store resource threshold check results
+    if [[ -n "$high_memory_nodes" ]]; then
+        store_result "node_memory_usage" "WARNING" "$high_memory_nodes" "메모리 사용률이 80%를 초과한 노드는 성능 저하 및 Pod 스케줄링 실패가 발생할 수 있습니다. 불필요한 워크로드를 제거하거나 노드를 추가하세요."
+    else
+        store_result "node_memory_usage" "SUCCESS" "모든 노드의 메모리 사용률이 정상 범위입니다."
+    fi
+
+    if [[ -n "$high_pod_nodes" ]]; then
+        store_result "node_pod_usage" "WARNING" "$high_pod_nodes" "Pod 사용률이 80%를 초과한 노드는 신규 Pod를 스케줄링할 수 없게 됩니다. 노드를 추가하거나 불필요한 Pod를 제거하세요."
+    else
+        store_result "node_pod_usage" "SUCCESS" "모든 노드의 Pod 사용률이 정상 범위입니다."
+    fi
+
     if [[ $not_ready_nodes -eq 0 ]]; then
         store_result "nodes" "SUCCESS" "모든 노드($node_count개)가 Ready 상태입니다."
     else

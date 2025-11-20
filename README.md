@@ -38,7 +38,6 @@
 cluster_check/
 ├── k8s_health_check.sh         # 메인 점검 스크립트 ⭐
 ├── generate_official_report.sh # 공공기관용 공식 보고서 생성 ⭐⭐
-├── dashboard.sh                # 실시간 터미널 대시보드
 ├── k8s_check.sh                # 기본 점검 스크립트
 ├── k8s_check_advanced.sh       # 레거시 고도화 스크립트
 ├── config.conf                 # 설정 파일 (자동 생성)

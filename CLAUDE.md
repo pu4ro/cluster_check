@@ -4,11 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This repository contains a comprehensive Kubernetes cluster health check system written in Bash. The project monitors cluster health, resource utilization, and storage systems (Rook-Ceph, Harbor, Minio), generating interactive HTML dashboards, JSON reports, and real-time terminal monitoring.
+This repository contains a comprehensive Kubernetes cluster health check system written in Bash. The project monitors cluster health, resource utilization, and storage systems (Rook-Ceph, Harbor, Minio), generating interactive HTML dashboards and JSON reports.
 
 **Primary Script**: `k8s_health_check.sh` - Main health check script with 10 comprehensive check items
 **Official Report**: `generate_official_report.sh` - Public sector official technical report generator (A4 PDF optimized)
-**Dashboard**: `dashboard.sh` - Real-time terminal-based monitoring dashboard
 **Config**: `config.conf` - Configuration file for timeouts, thresholds, and monitoring settings
 
 ## Architecture
@@ -76,18 +75,6 @@ This repository contains a comprehensive Kubernetes cluster health check system 
 
 # Debug mode
 DEBUG=true ./k8s_health_check.sh
-```
-
-### Real-Time Terminal Dashboard
-
-```bash
-# Single snapshot
-./dashboard.sh
-./dashboard.sh --once
-
-# Auto-refresh every 30 seconds
-./dashboard.sh --watch
-./dashboard.sh -w
 ```
 
 ### Official Report Generation (Public Sector)
@@ -171,14 +158,6 @@ When adding more exclusions, update the skip logic at k8s_health_check.sh:520-52
 - Color coding: Green (0-50%), Yellow (50-70%), Orange (70-85%), Red (85%+)
 - Embeds complete check details inline with placeholder replacement
 - Generated HTML is fully self-contained (except CDN resources)
-
-### Terminal Dashboard Features
-
-- Uses ANSI color codes and Unicode box-drawing characters
-- Requires UTF-8 locale support
-- 20-character progress bars using `#` and `-` characters
-- Auto-refresh mode clears screen between updates
-- Lightweight design with minimal kubectl calls
 
 ### Official Report Generation (generate_official_report.sh)
 

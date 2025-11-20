@@ -1511,13 +1511,13 @@ generate_html_report() {
 </html>
 EOF
 
-    # Replace placeholders
-    sed -i "s/REPORT_TIMESTAMP/$(date '+%Y년 %m월 %d일 %H시 %M분')/g" "$html_file"
-    sed -i "s/OVERALL_STATUS_CLASS/$status_class/g" "$html_file"
-    sed -i "s/OVERALL_STATUS/$overall_status/g" "$html_file"
-    sed -i "s/SUCCESS_COUNT/${#SUCCESS_CHECKS[@]}/g" "$html_file"
-    sed -i "s/WARNING_COUNT/${#WARNING_CHECKS[@]}/g" "$html_file"
-    sed -i "s/FAILED_COUNT/${#FAILED_CHECKS[@]}/g" "$html_file"
+    # Replace placeholders (using | as delimiter to avoid conflicts with /)
+    sed -i "s|REPORT_TIMESTAMP|$(date '+%Y년 %m월 %d일 %H시 %M분')|g" "$html_file"
+    sed -i "s|OVERALL_STATUS_CLASS|$status_class|g" "$html_file"
+    sed -i "s|OVERALL_STATUS|$overall_status|g" "$html_file"
+    sed -i "s|SUCCESS_COUNT|${#SUCCESS_CHECKS[@]}|g" "$html_file"
+    sed -i "s|WARNING_COUNT|${#WARNING_CHECKS[@]}|g" "$html_file"
+    sed -i "s|FAILED_COUNT|${#FAILED_CHECKS[@]}|g" "$html_file"
     
     # Add Harbor and Minio disk usage data
     local harbor_status="${CHECK_RESULTS[harbor_disk]:-N/A}"
@@ -1573,20 +1573,20 @@ EOF
         fi
     fi
     
-    # Replace all placeholders
-    sed -i "s/HARBOR_STATUS/$harbor_status/g" "$html_file"
-    sed -i "s/HARBOR_DETAILS/$harbor_details/g" "$html_file"
-    sed -i "s/HARBOR_USAGE_TEXT/$harbor_text/g" "$html_file"
-    sed -i "s/HARBOR_PROGRESS_WIDTH/$harbor_percent/g" "$html_file"
-    sed -i "s/HARBOR_PROGRESS_COLOR/$harbor_color/g" "$html_file"
-    sed -i "s/HARBOR_CHART_PERCENT/$harbor_percent/g" "$html_file"
-    
-    sed -i "s/MINIO_STATUS/$minio_status/g" "$html_file"
-    sed -i "s/MINIO_DETAILS/$minio_details/g" "$html_file"
-    sed -i "s/MINIO_USAGE_TEXT/$minio_text/g" "$html_file"
-    sed -i "s/MINIO_PROGRESS_WIDTH/$minio_percent/g" "$html_file"
-    sed -i "s/MINIO_PROGRESS_COLOR/$minio_color/g" "$html_file"
-    sed -i "s/MINIO_CHART_PERCENT/$minio_percent/g" "$html_file"
+    # Replace all placeholders (using | as delimiter to avoid conflicts with /)
+    sed -i "s|HARBOR_STATUS|$harbor_status|g" "$html_file"
+    sed -i "s|HARBOR_DETAILS|$harbor_details|g" "$html_file"
+    sed -i "s|HARBOR_USAGE_TEXT|$harbor_text|g" "$html_file"
+    sed -i "s|HARBOR_PROGRESS_WIDTH|$harbor_percent|g" "$html_file"
+    sed -i "s|HARBOR_PROGRESS_COLOR|$harbor_color|g" "$html_file"
+    sed -i "s|HARBOR_CHART_PERCENT|$harbor_percent|g" "$html_file"
+
+    sed -i "s|MINIO_STATUS|$minio_status|g" "$html_file"
+    sed -i "s|MINIO_DETAILS|$minio_details|g" "$html_file"
+    sed -i "s|MINIO_USAGE_TEXT|$minio_text|g" "$html_file"
+    sed -i "s|MINIO_PROGRESS_WIDTH|$minio_percent|g" "$html_file"
+    sed -i "s|MINIO_PROGRESS_COLOR|$minio_color|g" "$html_file"
+    sed -i "s|MINIO_CHART_PERCENT|$minio_percent|g" "$html_file"
     
     # Generate node resources content
     local node_content=""

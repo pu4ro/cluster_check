@@ -389,11 +389,13 @@ get_node_resources() {
     local cpu_allocatable=$(echo "$node_info" | grep -A 10 "Allocatable:" | grep "cpu:" | awk '{print $2}' | sed 's/m$//')
     local memory_allocatable=$(echo "$node_info" | grep -A 10 "Allocatable:" | grep "memory:" | awk '{print $2}' | sed 's/Ki$//')
     
-    # Get current requests
+    # Get current requests and extract percentages directly from kubectl output
     local resource_requests=$(echo "$node_info" | grep -A 20 "Allocated resources:")
-    local cpu_requests=$(echo "$resource_requests" | grep "cpu" | awk '{print $2}' | sed 's/m$//' | sed 's/(%)//')
-    local memory_requests=$(echo "$resource_requests" | grep "memory" | awk '{print $2}' | sed 's/Ki$//' | sed 's/(%)//')
-    
+
+    # Extract percentages from the output (format: "value (percentage%)")
+    local cpu_percent=$(echo "$resource_requests" | grep -w "cpu" | awk '{print $3}' | tr -d '()%' || echo "0")
+    local memory_percent=$(echo "$resource_requests" | grep -w "memory" | awk '{print $3}' | tr -d '()%' || echo "0")
+
     # Get pod count with timeout
     local pod_count=0
     if ! pod_count=$(timeout 15 kubectl_cmd get pods --all-namespaces --field-selector spec.nodeName="$node_name" --no-headers 2>/dev/null | wc -l); then
@@ -401,24 +403,20 @@ get_node_resources() {
         pod_count=0
     fi
     local max_pods=$(echo "$node_info" | grep "pods:" | tail -1 | awk '{print $2}')
-    
-    # Calculate percentages
-    local cpu_percent=0
-    local memory_percent=0
+
+    # Calculate pod percentage
     local pod_percent=0
-    
-    # Safe calculation with defaults
-    if [[ -n "$cpu_allocatable" && "$cpu_allocatable" =~ ^[0-9]+$ && "$cpu_allocatable" -gt 0 && -n "$cpu_requests" && "$cpu_requests" =~ ^[0-9]+$ ]]; then
-        cpu_percent=$(echo "scale=1; ($cpu_requests * 100) / $cpu_allocatable" | bc -l 2>/dev/null || echo "0")
-    fi
-    
-    if [[ -n "$memory_allocatable" && "$memory_allocatable" =~ ^[0-9]+$ && "$memory_allocatable" -gt 0 && -n "$memory_requests" && "$memory_requests" =~ ^[0-9]+$ ]]; then
-        memory_percent=$(echo "scale=1; ($memory_requests * 100) / $memory_allocatable" | bc -l 2>/dev/null || echo "0")
-    fi
-    
     if [[ -n "$max_pods" && "$max_pods" =~ ^[0-9]+$ && "$max_pods" -gt 0 ]]; then
         pod_percent=$(echo "scale=1; ($pod_count * 100) / $max_pods" | bc -l 2>/dev/null || echo "0")
     fi
+
+    # Ensure percentages are numeric (default to 0 if empty or invalid)
+    [[ ! "$cpu_percent" =~ ^[0-9.]+$ ]] && cpu_percent="0"
+    [[ ! "$memory_percent" =~ ^[0-9.]+$ ]] && memory_percent="0"
+
+    # For backward compatibility, extract raw values as well
+    local cpu_requests=$(echo "$resource_requests" | grep -w "cpu" | awk '{print $2}' | sed 's/m$//' || echo "0")
+    local memory_requests=$(echo "$resource_requests" | grep -w "memory" | awk '{print $2}' | sed -E 's/[KMGT]i$//' || echo "0")
     
     # Check for GPU
     local gpu_info=""

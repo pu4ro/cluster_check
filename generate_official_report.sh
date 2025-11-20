@@ -161,14 +161,46 @@ collect_cluster_info() {
     # Node count and details (with timeout)
     NODE_COUNT=$(timeout $KUBECTL_TIMEOUT kubectl get nodes --no-headers 2>/dev/null | wc -l 2>/dev/null || echo "0")
 
-    # Get detailed node information including capacity, allocatable, and GPU
-    if [[ "$ENABLE_GPU_MONITORING" == "true" ]]; then
-        NODE_DETAILS=$(timeout 10 kubectl get nodes -o json 2>/dev/null | jq -r '.items[] |
-            "\(.metadata.name)|\(.status.nodeInfo.osImage)|\(.status.nodeInfo.kernelVersion)|\(.status.capacity.cpu)|\(.status.capacity.memory)|\(.status.capacity.pods)|\(.status.allocatable.memory)|\(.status.capacity."nvidia.com/gpu" // "0")"' 2>/dev/null || echo "")
-    else
-        NODE_DETAILS=$(timeout 10 kubectl get nodes -o json 2>/dev/null | jq -r '.items[] |
-            "\(.metadata.name)|\(.status.nodeInfo.osImage)|\(.status.nodeInfo.kernelVersion)|\(.status.capacity.cpu)|\(.status.capacity.memory)|\(.status.capacity.pods)|\(.status.allocatable.memory)|0"' 2>/dev/null || echo "")
-    fi
+    # Get detailed node information including capacity, allocatable, GPU, and usage
+    # Format: name|cpu|memory|max_pods|allocatable_mem|gpu_count|current_pods|memory_used_percent|disk_used_percent
+    NODE_DETAILS=""
+    local node_list=$(timeout 10 kubectl get nodes -o json 2>/dev/null | jq -r '.items[].metadata.name' 2>/dev/null || echo "")
+
+    for node_name in $node_list; do
+        [[ -z "$node_name" ]] && continue
+
+        # Get node capacity and allocatable
+        local node_info=$(timeout 5 kubectl get node "$node_name" -o json 2>/dev/null)
+        local cpu=$(echo "$node_info" | jq -r '.status.capacity.cpu' 2>/dev/null || echo "0")
+        local memory=$(echo "$node_info" | jq -r '.status.capacity.memory' 2>/dev/null || echo "0Ki")
+        local max_pods=$(echo "$node_info" | jq -r '.status.capacity.pods' 2>/dev/null || echo "0")
+        local allocatable_mem=$(echo "$node_info" | jq -r '.status.allocatable.memory' 2>/dev/null || echo "0Ki")
+        local gpu_count="0"
+
+        if [[ "$ENABLE_GPU_MONITORING" == "true" ]]; then
+            gpu_count=$(echo "$node_info" | jq -r '.status.capacity."nvidia.com/gpu" // "0"' 2>/dev/null || echo "0")
+        fi
+
+        # Get current pod count
+        local current_pods=$(timeout 5 kubectl get pods --all-namespaces --field-selector spec.nodeName="$node_name" --no-headers 2>/dev/null | wc -l 2>/dev/null || echo "0")
+
+        # Get memory usage from describe node
+        local mem_usage_percent="0"
+        local describe_output=$(timeout 5 kubectl describe node "$node_name" 2>/dev/null || echo "")
+        if [[ -n "$describe_output" ]]; then
+            mem_usage_percent=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep "memory" | awk '{print $2}' | tr -d '()%' | head -1 || echo "0")
+        fi
+
+        # Get disk usage
+        local disk_usage_percent="0"
+        local ephemeral_storage=$(echo "$node_info" | jq -r '.status.allocatable."ephemeral-storage"' 2>/dev/null || echo "")
+        if [[ -n "$ephemeral_storage" && "$ephemeral_storage" != "null" ]]; then
+            # Try to get disk usage from node conditions or filesystem
+            disk_usage_percent=$(echo "$describe_output" | grep -i "disk.*pressure" | grep -q "False" && echo "0" || echo "N/A")
+        fi
+
+        NODE_DETAILS+="${node_name}|${cpu}|${memory}|${max_pods}|${allocatable_mem}|${gpu_count}|${current_pods}|${mem_usage_percent}|${disk_usage_percent}"$'\n'
+    done
 
     # CNI check (with timeout, use override if set)
     if [[ -n "$CNI_TYPE_OVERRIDE" ]]; then
@@ -589,7 +621,44 @@ add_cover_page() {
                 <span class="cover-label">작성일:</span>
                 <span>${REPORT_DATE}</span>
             </div>
-            <div class="cover-info-row">
+        </div>
+
+        <div style="margin-top: 60px; border-top: 2px solid #333; padding-top: 30px;">
+            <h3 style="text-align: center; margin-bottom: 30px; font-size: 18pt;">검토 및 승인</h3>
+            <table style="width: 100%; border-collapse: collapse; margin: 0 auto;">
+                <thead>
+                    <tr>
+                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 25%;">구분</th>
+                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 25%;">소속</th>
+                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 25%;">성명</th>
+                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 25%;">서명</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #333; padding: 25px; text-align: center; font-weight: bold;">작성</td>
+                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #333; padding: 25px; text-align: center; font-weight: bold;">검토</td>
+                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #333; padding: 25px; text-align: center; font-weight: bold;">승인</td>
+                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
+                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 40px; text-align: center;">
+            <div class="cover-info-row" style="justify-content: center;">
                 <span class="cover-label">문서 버전:</span>
                 <span>${REPORT_VERSION}</span>
             </div>
@@ -818,7 +887,7 @@ K8SEOF
     # Check if any node has GPU
     local has_gpu=false
     if [[ -n "$NODE_DETAILS" ]]; then
-        while IFS='|' read -r name os kernel cpu memory max_pods allocatable_mem gpu_count; do
+        while IFS='|' read -r name cpu memory max_pods allocatable_mem gpu_count current_pods mem_percent disk_percent; do
             if [[ "$gpu_count" != "0" && -n "$gpu_count" ]]; then
                 has_gpu=true
                 break
@@ -832,14 +901,17 @@ K8SEOF
     <table>
         <thead>
             <tr>
-                <th>노드명</th>
-                <th>OS</th>
-                <th>커널 버전</th>
-                <th>CPU</th>
-                <th>메모리<br>용량</th>
-                <th>메모리<br>할당가능</th>
-                <th>GPU</th>
-                <th>최대 Pod<br>개수</th>
+                <th rowspan="2">노드명</th>
+                <th rowspan="2">CPU<br>(cores)</th>
+                <th rowspan="2">메모리<br>(GB)</th>
+                <th colspan="2">Pod 사용량</th>
+                <th rowspan="2">메모리<br>사용률</th>
+                <th rowspan="2">GPU<br>사용률</th>
+                <th rowspan="2">디스크<br>사용률</th>
+            </tr>
+            <tr>
+                <th>현재/최대</th>
+                <th>비율</th>
             </tr>
         </thead>
         <tbody>
@@ -849,13 +921,16 @@ TABLEHEADEREOF
     <table>
         <thead>
             <tr>
-                <th>노드명</th>
-                <th>OS</th>
-                <th>커널 버전</th>
-                <th>CPU</th>
-                <th>메모리<br>용량</th>
-                <th>메모리<br>할당가능</th>
-                <th>최대 Pod<br>개수</th>
+                <th rowspan="2">노드명</th>
+                <th rowspan="2">CPU<br>(cores)</th>
+                <th rowspan="2">메모리<br>(GB)</th>
+                <th colspan="2">Pod 사용량</th>
+                <th rowspan="2">메모리<br>사용률</th>
+                <th rowspan="2">디스크<br>사용률</th>
+            </tr>
+            <tr>
+                <th>현재/최대</th>
+                <th>비율</th>
             </tr>
         </thead>
         <tbody>
@@ -864,34 +939,53 @@ TABLEHEADEREOF
 
     # Add node details
     if [[ -n "$NODE_DETAILS" ]]; then
-        while IFS='|' read -r name os kernel cpu memory max_pods allocatable_mem gpu_count; do
+        while IFS='|' read -r name cpu memory max_pods allocatable_mem gpu_count current_pods mem_percent disk_percent; do
+            [[ -z "$name" ]] && continue
+
             # Convert memory from Ki to GB (1 Ki = 1024 bytes, 1 GB = 1073741824 bytes)
             local mem_gb=$(echo "$memory" | sed 's/Ki//' | awk '{printf "%.1f", $1/1024/1024}')
-            local alloc_mem_gb=$(echo "$allocatable_mem" | sed 's/Ki//' | awk '{printf "%.1f", $1/1024/1024}')
+
+            # Calculate pod usage percentage
+            local pod_percent="0"
+            if [[ "$max_pods" != "0" && -n "$max_pods" && -n "$current_pods" ]]; then
+                pod_percent=$(awk "BEGIN {printf \"%.1f\", ($current_pods / $max_pods) * 100}")
+            fi
+
+            # Format memory percentage
+            [[ -z "$mem_percent" || "$mem_percent" == "N/A" ]] && mem_percent="0"
+
+            # Format disk percentage
+            [[ -z "$disk_percent" || "$disk_percent" == "N/A" ]] && disk_percent="N/A"
+
+            # Calculate GPU usage percentage (for now, show count as placeholder)
+            local gpu_percent="N/A"
+            if [[ "$gpu_count" != "0" && -n "$gpu_count" ]]; then
+                gpu_percent="${gpu_count} GPU"
+            fi
 
             if [[ "$has_gpu" == "true" ]]; then
                 cat >> "$html_file" << NODEEOF
             <tr>
                 <td><strong>${name}</strong></td>
-                <td style="font-size: 9pt;">${os}</td>
-                <td style="font-size: 9pt;">${kernel}</td>
-                <td style="text-align: center;">${cpu} cores</td>
+                <td style="text-align: center;">${cpu}</td>
                 <td style="text-align: right;">${mem_gb} GB</td>
-                <td style="text-align: right;">${alloc_mem_gb} GB</td>
-                <td style="text-align: center;">${gpu_count}</td>
-                <td style="text-align: center;">${max_pods}개</td>
+                <td style="text-align: center;">${current_pods}/${max_pods}</td>
+                <td style="text-align: center;">${pod_percent}%</td>
+                <td style="text-align: center;">${mem_percent}%</td>
+                <td style="text-align: center;">${gpu_percent}</td>
+                <td style="text-align: center;">${disk_percent}</td>
             </tr>
 NODEEOF
             else
                 cat >> "$html_file" << NODEEOF
             <tr>
                 <td><strong>${name}</strong></td>
-                <td style="font-size: 9pt;">${os}</td>
-                <td style="font-size: 9pt;">${kernel}</td>
-                <td style="text-align: center;">${cpu} cores</td>
+                <td style="text-align: center;">${cpu}</td>
                 <td style="text-align: right;">${mem_gb} GB</td>
-                <td style="text-align: right;">${alloc_mem_gb} GB</td>
-                <td style="text-align: center;">${max_pods}개</td>
+                <td style="text-align: center;">${current_pods}/${max_pods}</td>
+                <td style="text-align: center;">${pod_percent}%</td>
+                <td style="text-align: center;">${mem_percent}%</td>
+                <td style="text-align: center;">${disk_percent}</td>
             </tr>
 NODEEOF
             fi

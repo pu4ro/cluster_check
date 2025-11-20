@@ -350,7 +350,7 @@ check_node_status() {
         for node_name in $node_name_list; do
             [[ -z "$node_name" ]] && continue
             log_info "노드 '$node_name' 리소스 정보 수집 중..."
-            if timeout 30 get_node_resources "$node_name" 2>/dev/null; then
+            if get_node_resources "$node_name"; then
                 ((processed_nodes++))
                 log_debug "Successfully processed node: $node_name"
             else

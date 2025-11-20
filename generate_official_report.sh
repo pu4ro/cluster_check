@@ -202,13 +202,13 @@ collect_cluster_info() {
         local disk_usage_percent="N/A"
         if [[ -n "$describe_output" ]]; then
             local ephemeral_usage=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep -w "ephemeral-storage" | awk '{print $3}' | tr -d '()%' | head -1 2>/dev/null || echo "")
-            if [[ -n "$ephemeral_usage" && "$ephemeral_usage" =~ ^[0-9]+$ ]]; then
+
+            # Check if ephemeral-storage is tracked (not 0%)
+            if [[ -n "$ephemeral_usage" && "$ephemeral_usage" =~ ^[0-9]+$ && "$ephemeral_usage" -gt 0 ]]; then
                 disk_usage_percent="$ephemeral_usage"
             else
-                # If ephemeral-storage is not tracked, try to check disk pressure
-                if echo "$describe_output" | grep -i "DiskPressure.*False" >/dev/null 2>&1; then
-                    disk_usage_percent="N/A"
-                fi
+                # ephemeral-storage not tracked, mark as not monitored
+                disk_usage_percent="미추적"
             fi
         fi
 

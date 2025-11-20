@@ -60,6 +60,17 @@ log_debug() {
     echo -e "${BLUE}[DEBUG]${NC} $*"
 }
 
+# Load configuration file
+CONFIG_FILE="${SCRIPT_DIR}/config.conf"
+if [[ -f "$CONFIG_FILE" ]]; then
+    source "$CONFIG_FILE"
+else
+    log_warn "설정 파일을 찾을 수 없습니다: $CONFIG_FILE. 기본값을 사용합니다."
+    # Default values if config file is missing
+    GENERATE_HTML_REPORT=true
+    GENERATE_JSON_REPORT=true
+fi
+
 # Usage function
 show_usage() {
     cat << EOF
@@ -2109,20 +2120,34 @@ main() {
     
     echo
     log_info "보고서를 생성합니다..."
-    
-    # Generate reports based on output format
+
+    # Generate reports based on output format and config settings
     case "$OUTPUT_FORMAT" in
         "html")
+            # Always generate HTML report if explicitly requested
             report_file=$(generate_html_report)
             log_success "HTML 보고서가 생성되었습니다: $report_file"
+
+            # Also generate JSON report if enabled in config
+            if [[ "${GENERATE_JSON_REPORT:-true}" == "true" ]]; then
+                json_report=$(generate_json_report)
+                log_success "JSON 보고서가 생성되었습니다: $json_report"
+            fi
             ;;
         "log")
             report_file=$(generate_log_report)
             log_success "로그 보고서가 생성되었습니다: $report_file"
             ;;
         "json")
+            # Always generate JSON report if explicitly requested
             report_file=$(generate_json_report)
             log_success "JSON 보고서가 생성되었습니다: $report_file"
+
+            # Also generate HTML report if enabled in config
+            if [[ "${GENERATE_HTML_REPORT:-true}" == "true" ]]; then
+                html_report=$(generate_html_report)
+                log_success "HTML 보고서가 생성되었습니다: $html_report"
+            fi
             ;;
     esac
     

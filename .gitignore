@@ -3,6 +3,9 @@ reports/*.log
 reports/*.html
 reports/*.json
 
+# Environment configuration (contains sensitive data)
+.env
+
 # Temporary files
 *.tmp
 *.temp

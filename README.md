@@ -87,17 +87,21 @@ DEBUG=true ./k8s_health_check.sh
 공공기관용 공식 기술 점검 보고서를 생성합니다. A4 PDF 인쇄 최적화 및 흑백 출력을 지원합니다.
 
 ```bash
+# .env 파일 설정 (선택사항)
+cp .env.example .env
+# .env 파일을 편집하여 기관명, Runway 버전 등 설정
+
 # 자동으로 클러스터 점검 및 보고서 생성
 ./generate_official_report.sh
 
 # 기존 JSON 파일로 보고서 생성
 ./generate_official_report.sh --json reports/k8s_health_report_20250120_120000.json
 
-# 기관명 및 작성자 지정
+# 기관명 및 작성자 지정 (명령줄 옵션)
 ./generate_official_report.sh --org "한국수자원공사" --author "김철수"
 
 # 문서 버전 지정
-./generate_official_report.sh --version "2.0" --author "기술운영팀"
+./generate_official_report.sh --version "2.0"
 
 # PDF 변환 (wkhtmltopdf 필요)
 wkhtmltopdf reports/official_report_*.html reports/official_report.pdf
@@ -107,10 +111,11 @@ wkhtmltopdf reports/official_report_*.html reports/official_report.pdf
 1. 표지 (기관명, 작성자, 작성일, 문서 버전)
 2. 보고서 요약 (Executive Summary)
 3. 점검 항목 및 결과 요약표
-4. Kubernetes Cluster 점검 상세
+4. Kubernetes Cluster 점검 상세 (노드 상세 정보에 GPU 포함)
 5. Runway 플랫폼 점검 상세
 6. 문제 발견 사항 (이슈 리스트)
-7. 최종 결론 및 종합 권고사항
+7. 최종 결론 (담당자 직접 작성 영역)
+8. 검토 및 승인 (서명 및 날인 테이블)
 
 **특징:**
 - ✅ A4 PDF 인쇄 최적화 (페이지 자동 분할)
@@ -118,6 +123,10 @@ wkhtmltopdf reports/official_report_*.html reports/official_report.pdf
 - ✅ 공공기관 보고서 형식 (격식있는 표현)
 - ✅ 리스크 등급 자동 평가 (상/중/하)
 - ✅ 개선 방안 자동 제안
+- ✅ .env 파일로 모든 설정 가능 (Runway 버전, 기관명 등)
+- ✅ GPU 노드 자동 감지 및 GPU 개수 표시
+- ✅ 메모리 단위 GB로 표시
+- ✅ 담당자 직접 결론 작성 및 서명/날인 영역 제공
 
 ## ⚙️ 설정
 

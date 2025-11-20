@@ -10,12 +10,31 @@ set -e
 # Global variables
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUTPUT_DIR="${SCRIPT_DIR}/reports"
 JSON_INPUT=""
 REPORT_DATE=$(date +%Y-%m-%d)
-REPORT_VERSION="1.0"
+
+# Load .env file if exists
+if [[ -f "${SCRIPT_DIR}/.env" ]]; then
+    source "${SCRIPT_DIR}/.env"
+    echo "Loaded configuration from .env file"
+fi
+
+# Set default values (can be overridden by .env or command line)
+OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/reports}"
+REPORT_VERSION="${REPORT_VERSION:-1.0}"
 AUTHOR_NAME="${AUTHOR_NAME:-기술운영팀}"
 ORGANIZATION="${ORGANIZATION:-한국수자원공사}"
+KUBECTL_TIMEOUT="${KUBECTL_TIMEOUT:-5}"
+ENABLE_GPU_MONITORING="${ENABLE_GPU_MONITORING:-true}"
+
+# Runway platform defaults (can be set in .env)
+RUNWAY_VERSION_OVERRIDE="${RUNWAY_VERSION:-}"
+RUNWAY_INSTALLED_OVERRIDE="${RUNWAY_INSTALLED:-}"
+
+# Kubernetes cluster defaults (can be set in .env)
+K8S_VERSION_OVERRIDE="${K8S_VERSION:-}"
+CNI_TYPE_OVERRIDE="${CNI_TYPE:-}"
+GPU_OPERATOR_STATUS_OVERRIDE="${GPU_OPERATOR_STATUS:-}"
 
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
@@ -30,6 +49,10 @@ NC='\033[0m'
 # Logging functions
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $*"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $*"
 }
 
 log_error() {
@@ -125,35 +148,53 @@ run_health_check() {
 collect_cluster_info() {
     log_info "클러스터 정보를 수집합니다..."
 
-    # Kubernetes version (with timeout)
-    K8S_VERSION=$(timeout 5 kubectl version --short 2>/dev/null | grep "Server Version" | cut -d':' -f2 | xargs 2>/dev/null || echo "확인 불가")
+    # Kubernetes version (with timeout, use override if set)
+    if [[ -n "$K8S_VERSION_OVERRIDE" ]]; then
+        K8S_VERSION="$K8S_VERSION_OVERRIDE"
+    else
+        K8S_VERSION=$(timeout $KUBECTL_TIMEOUT kubectl version --short 2>/dev/null | grep "Server Version" | cut -d':' -f2 | xargs 2>/dev/null || echo "확인 불가")
+    fi
 
     # Cluster info (with timeout)
-    CLUSTER_ENDPOINT=$(timeout 5 kubectl cluster-info 2>/dev/null | grep "control plane" | awk '{print $NF}' 2>/dev/null || echo "확인 불가")
+    CLUSTER_ENDPOINT=$(timeout $KUBECTL_TIMEOUT kubectl cluster-info 2>/dev/null | grep "control plane" | awk '{print $NF}' 2>/dev/null || echo "확인 불가")
 
     # Node count and details (with timeout)
-    NODE_COUNT=$(timeout 5 kubectl get nodes --no-headers 2>/dev/null | wc -l 2>/dev/null || echo "0")
+    NODE_COUNT=$(timeout $KUBECTL_TIMEOUT kubectl get nodes --no-headers 2>/dev/null | wc -l 2>/dev/null || echo "0")
 
-    # Get node details (with timeout)
-    NODE_DETAILS=$(timeout 5 kubectl get nodes -o json 2>/dev/null | jq -r '.items[] | "\(.metadata.name)|\(.status.nodeInfo.osImage)|\(.status.nodeInfo.kernelVersion)|\(.status.capacity.cpu)|\(.status.capacity.memory)"' 2>/dev/null || echo "")
+    # Get detailed node information including capacity, allocatable, and GPU
+    if [[ "$ENABLE_GPU_MONITORING" == "true" ]]; then
+        NODE_DETAILS=$(timeout 10 kubectl get nodes -o json 2>/dev/null | jq -r '.items[] |
+            "\(.metadata.name)|\(.status.nodeInfo.osImage)|\(.status.nodeInfo.kernelVersion)|\(.status.capacity.cpu)|\(.status.capacity.memory)|\(.status.capacity.pods)|\(.status.allocatable.memory)|\(.status.capacity."nvidia.com/gpu" // "0")"' 2>/dev/null || echo "")
+    else
+        NODE_DETAILS=$(timeout 10 kubectl get nodes -o json 2>/dev/null | jq -r '.items[] |
+            "\(.metadata.name)|\(.status.nodeInfo.osImage)|\(.status.nodeInfo.kernelVersion)|\(.status.capacity.cpu)|\(.status.capacity.memory)|\(.status.capacity.pods)|\(.status.allocatable.memory)|0"' 2>/dev/null || echo "")
+    fi
 
-    # CNI check (with timeout)
-    CNI_TYPE="확인 불가"
-    if timeout 5 kubectl get pods -n kube-system -l k8s-app=cilium &>/dev/null; then
-        CNI_TYPE="Cilium"
-    elif timeout 5 kubectl get pods -n kube-system -l k8s-app=calico-node &>/dev/null; then
-        CNI_TYPE="Calico"
-    elif timeout 5 kubectl get pods -n kube-flannel &>/dev/null; then
-        CNI_TYPE="Flannel"
+    # CNI check (with timeout, use override if set)
+    if [[ -n "$CNI_TYPE_OVERRIDE" ]]; then
+        CNI_TYPE="$CNI_TYPE_OVERRIDE"
+    else
+        CNI_TYPE="확인 불가"
+        if timeout $KUBECTL_TIMEOUT kubectl get pods -n kube-system -l k8s-app=cilium &>/dev/null; then
+            CNI_TYPE="Cilium"
+        elif timeout $KUBECTL_TIMEOUT kubectl get pods -n kube-system -l k8s-app=calico-node &>/dev/null; then
+            CNI_TYPE="Calico"
+        elif timeout $KUBECTL_TIMEOUT kubectl get pods -n kube-flannel &>/dev/null; then
+            CNI_TYPE="Flannel"
+        fi
     fi
 
     # Storage class check (with timeout)
-    STORAGE_CLASSES=$(timeout 5 kubectl get storageclass --no-headers 2>/dev/null | awk '{print $1}' | paste -sd "," - 2>/dev/null || echo "확인 불가")
+    STORAGE_CLASSES=$(timeout $KUBECTL_TIMEOUT kubectl get storageclass --no-headers 2>/dev/null | awk '{print $1}' | paste -sd "," - 2>/dev/null || echo "확인 불가")
 
-    # GPU Operator check (with timeout)
-    GPU_OPERATOR="미설치"
-    if timeout 5 kubectl get deployment -n gpu-operator nvidia-operator-validator &>/dev/null; then
-        GPU_OPERATOR="설치됨"
+    # GPU Operator check (with timeout, use override if set)
+    if [[ -n "$GPU_OPERATOR_STATUS_OVERRIDE" ]]; then
+        GPU_OPERATOR="$GPU_OPERATOR_STATUS_OVERRIDE"
+    else
+        GPU_OPERATOR="미설치"
+        if timeout $KUBECTL_TIMEOUT kubectl get deployment -n gpu-operator nvidia-operator-validator &>/dev/null; then
+            GPU_OPERATOR="설치됨"
+        fi
     fi
 
     log_success "클러스터 정보 수집 완료"
@@ -163,18 +204,29 @@ collect_cluster_info() {
 collect_runway_info() {
     log_info "Runway 플랫폼 정보를 수집합니다..."
 
-    # Check if Runway is installed (with timeout)
-    RUNWAY_INSTALLED="미설치"
-    RUNWAY_VERSION="확인 불가"
+    # Check if Runway is installed (use override if set)
+    if [[ -n "$RUNWAY_INSTALLED_OVERRIDE" ]]; then
+        RUNWAY_INSTALLED="$RUNWAY_INSTALLED_OVERRIDE"
+    else
+        RUNWAY_INSTALLED="미설치"
+        if timeout $KUBECTL_TIMEOUT kubectl get namespace runway &>/dev/null; then
+            RUNWAY_INSTALLED="설치됨"
+        fi
+    fi
 
-    if timeout 5 kubectl get namespace runway &>/dev/null; then
-        RUNWAY_INSTALLED="설치됨"
-        RUNWAY_VERSION=$(timeout 5 kubectl get deployment -n runway runway-operator -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | cut -d':' -f2 2>/dev/null || echo "확인 불가")
+    # Runway version (use override if set)
+    if [[ -n "$RUNWAY_VERSION_OVERRIDE" ]]; then
+        RUNWAY_VERSION="$RUNWAY_VERSION_OVERRIDE"
+    else
+        RUNWAY_VERSION="확인 불가"
+        if [[ "$RUNWAY_INSTALLED" == "설치됨" ]]; then
+            RUNWAY_VERSION=$(timeout $KUBECTL_TIMEOUT kubectl get deployment -n runway runway-operator -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | cut -d':' -f2 2>/dev/null || echo "확인 불가")
+        fi
     fi
 
     # KServe check (with timeout)
     KSERVE_INSTALLED="미설치"
-    if timeout 5 kubectl get namespace kserve &>/dev/null; then
+    if timeout $KUBECTL_TIMEOUT kubectl get namespace kserve &>/dev/null; then
         KSERVE_INSTALLED="설치됨"
     fi
 
@@ -761,6 +813,22 @@ add_kubernetes_details() {
 
     <h3><span class="section-number">3.2.</span>노드 상세 정보</h3>
 
+K8SEOF
+
+    # Check if any node has GPU
+    local has_gpu=false
+    if [[ -n "$NODE_DETAILS" ]]; then
+        while IFS='|' read -r name os kernel cpu memory max_pods allocatable_mem gpu_count; do
+            if [[ "$gpu_count" != "0" && -n "$gpu_count" ]]; then
+                has_gpu=true
+                break
+            fi
+        done <<< "$NODE_DETAILS"
+    fi
+
+    # Create table header based on GPU presence
+    if [[ "$has_gpu" == "true" ]]; then
+        cat >> "$html_file" << TABLEHEADEREOF
     <table>
         <thead>
             <tr>
@@ -768,29 +836,74 @@ add_kubernetes_details() {
                 <th>OS</th>
                 <th>커널 버전</th>
                 <th>CPU</th>
-                <th>메모리</th>
+                <th>메모리<br>용량</th>
+                <th>메모리<br>할당가능</th>
+                <th>GPU</th>
+                <th>최대 Pod<br>개수</th>
             </tr>
         </thead>
         <tbody>
-K8SEOF
+TABLEHEADEREOF
+    else
+        cat >> "$html_file" << TABLEHEADEREOF
+    <table>
+        <thead>
+            <tr>
+                <th>노드명</th>
+                <th>OS</th>
+                <th>커널 버전</th>
+                <th>CPU</th>
+                <th>메모리<br>용량</th>
+                <th>메모리<br>할당가능</th>
+                <th>최대 Pod<br>개수</th>
+            </tr>
+        </thead>
+        <tbody>
+TABLEHEADEREOF
+    fi
 
     # Add node details
     if [[ -n "$NODE_DETAILS" ]]; then
-        while IFS='|' read -r name os kernel cpu memory; do
-            cat >> "$html_file" << NODEEOF
+        while IFS='|' read -r name os kernel cpu memory max_pods allocatable_mem gpu_count; do
+            # Convert memory from Ki to GB (1 Ki = 1024 bytes, 1 GB = 1073741824 bytes)
+            local mem_gb=$(echo "$memory" | sed 's/Ki//' | awk '{printf "%.1f", $1/1024/1024}')
+            local alloc_mem_gb=$(echo "$allocatable_mem" | sed 's/Ki//' | awk '{printf "%.1f", $1/1024/1024}')
+
+            if [[ "$has_gpu" == "true" ]]; then
+                cat >> "$html_file" << NODEEOF
             <tr>
-                <td>${name}</td>
-                <td>${os}</td>
-                <td>${kernel}</td>
-                <td>${cpu} cores</td>
-                <td>${memory}</td>
+                <td><strong>${name}</strong></td>
+                <td style="font-size: 9pt;">${os}</td>
+                <td style="font-size: 9pt;">${kernel}</td>
+                <td style="text-align: center;">${cpu} cores</td>
+                <td style="text-align: right;">${mem_gb} GB</td>
+                <td style="text-align: right;">${alloc_mem_gb} GB</td>
+                <td style="text-align: center;">${gpu_count}</td>
+                <td style="text-align: center;">${max_pods}개</td>
             </tr>
 NODEEOF
+            else
+                cat >> "$html_file" << NODEEOF
+            <tr>
+                <td><strong>${name}</strong></td>
+                <td style="font-size: 9pt;">${os}</td>
+                <td style="font-size: 9pt;">${kernel}</td>
+                <td style="text-align: center;">${cpu} cores</td>
+                <td style="text-align: right;">${mem_gb} GB</td>
+                <td style="text-align: right;">${alloc_mem_gb} GB</td>
+                <td style="text-align: center;">${max_pods}개</td>
+            </tr>
+NODEEOF
+            fi
         done <<< "$NODE_DETAILS"
     else
+        local colspan=7
+        if [[ "$has_gpu" == "true" ]]; then
+            colspan=8
+        fi
         cat >> "$html_file" << NODEEOF
             <tr>
-                <td colspan="5" style="text-align: center;">노드 정보를 확인할 수 없습니다.</td>
+                <td colspan="$colspan" style="text-align: center;">노드 정보를 확인할 수 없습니다.</td>
             </tr>
 NODEEOF
     fi
@@ -804,8 +917,6 @@ NODEEOF
     <div class="notice-box">
         <div class="notice-title">권고사항</div>
         <ul>
-            <li>Kubernetes 버전은 정기적으로 업데이트하여 보안 패치를 적용해야 합니다.</li>
-            <li>노드의 OS 및 커널 버전도 최신 상태를 유지하는 것이 권장됩니다.</li>
             <li>CNI 플러그인의 설정을 주기적으로 검토하여 네트워크 정책이 올바르게 적용되는지 확인해야 합니다.</li>
             <li>GPU를 사용하는 경우 GPU Operator 및 드라이버 버전 호환성을 확인해야 합니다.</li>
         </ul>
@@ -984,114 +1095,66 @@ NOISSUEEOF
 ISSUEENDEOF
 }
 
-# Add final conclusion
+# Add final conclusion and signature section
 add_final_conclusion() {
     local html_file="$1"
 
     cat >> "$html_file" << CONCLUSIONEOF
-    <h2><span class="section-number">6.</span>최종 결론 및 종합 권고사항</h2>
+    <h2><span class="section-number">6.</span>최종 결론</h2>
 
-    <h3><span class="section-number">6.1.</span>안정성</h3>
-    <p>
-CONCLUSIONEOF
-
-    if [[ $FAILED_COUNT -eq 0 && $WARNING_COUNT -eq 0 ]]; then
-        cat >> "$html_file" << STABILITYEOF
-    클러스터의 모든 구성 요소가 정상적으로 동작하고 있으며, 현재 안정성은 양호한 것으로 평가됩니다.
-    다만, 지속적인 모니터링을 통해 안정성을 유지하는 것이 중요합니다.
-STABILITYEOF
-    elif [[ $FAILED_COUNT -eq 0 ]]; then
-        cat >> "$html_file" << STABILITYEOF
-    클러스터의 전반적인 안정성은 양호하나, 일부 주의가 필요한 항목이 발견되었습니다.
-    해당 항목들에 대한 모니터링을 강화하고, 필요 시 개선 조치를 취해야 합니다.
-STABILITYEOF
-    else
-        cat >> "$html_file" << STABILITYEOF
-    클러스터에서 ${FAILED_COUNT}개의 심각한 문제가 발견되었습니다.
-    이는 안정성에 직접적인 영향을 미칠 수 있으므로 즉시 조치가 필요합니다.
-STABILITYEOF
-    fi
-
-    cat >> "$html_file" << PERFEOF
-    </p>
-
-    <h3><span class="section-number">6.2.</span>성능</h3>
-    <p>
-    현재 점검에서는 기본적인 상태 확인을 수행하였으며, 성능 관련 세부 메트릭(CPU/메모리 사용률, 응답 시간 등)은
-    별도의 모니터링 시스템(Prometheus, Grafana 등)을 통해 지속적으로 추적해야 합니다.
-    리소스 사용률이 지속적으로 높은 경우 스케일링 계획을 수립해야 합니다.
-    </p>
-
-    <h3><span class="section-number">6.3.</span>보안</h3>
-    <p>
-    본 점검에서는 기본적인 구성 요소의 상태만을 확인하였습니다.
-    보안 강화를 위해 다음 사항을 추가로 점검할 것을 권장합니다:
-    </p>
-    <ul>
-        <li>Network Policy 적용 현황 및 Pod 간 통신 제한</li>
-        <li>RBAC 설정 검토 및 최소 권한 원칙 적용</li>
-        <li>Pod Security Standards (PSS) 적용</li>
-        <li>컨테이너 이미지 취약점 스캔</li>
-        <li>Secrets 관리 방식 (외부 Vault 연동 등)</li>
-        <li>감사 로그 (Audit Log) 활성화 및 모니터링</li>
-    </ul>
-
-    <h3><span class="section-number">6.4.</span>운영 관점</h3>
-    <p>
-    효율적인 운영을 위해 다음 사항을 권장합니다:
-    </p>
-    <ul>
-        <li>정기적인 클러스터 상태 점검 자동화 (일일/주간 점검)</li>
-        <li>로그 중앙화 및 장기 보관 정책 수립</li>
-        <li>알림 체계 구축 (Slack, Email 등 연동)</li>
-        <li>백업 및 재해 복구 계획 수립</li>
-        <li>운영 문서화 및 런북(Runbook) 작성</li>
-    </ul>
-
-    <h3><span class="section-number">6.5.</span>확장성</h3>
-    <p>
-    향후 워크로드 증가에 대비하여 다음과 같은 확장 계획을 수립할 것을 권장합니다:
-    </p>
-    <ul>
-        <li>노드 Auto-scaling 구성 (Cluster Autoscaler)</li>
-        <li>워크로드 Auto-scaling 구성 (HPA, VPA)</li>
-        <li>스토리지 용량 증설 계획 (현재 사용률 기반)</li>
-        <li>네트워크 대역폭 모니터링 및 확장 계획</li>
-    </ul>
-
-    <h3><span class="section-number">6.6.</span>중장기 개선 제안</h3>
-    <ul>
-        <li><strong>모니터링 강화:</strong> Prometheus, Grafana, Loki 등을 통한 종합 모니터링 시스템 구축</li>
-        <li><strong>GitOps 도입:</strong> ArgoCD, FluxCD 등을 활용한 선언적 배포 자동화</li>
-        <li><strong>서비스 메시:</strong> Istio, Linkerd 등을 통한 마이크로서비스 관리 고도화</li>
-        <li><strong>비용 최적화:</strong> 리소스 사용률 분석 및 Right-sizing 수행</li>
-        <li><strong>멀티 클러스터 관리:</strong> 클러스터 확장 시 통합 관리 방안 검토</li>
-    </ul>
-
-    <div class="summary-box" style="margin-top: 30px;">
-        <h4>종합 평가</h4>
-        <p>
-        ${ORGANIZATION}의 Kubernetes 클러스터는 전반적으로
-PERFEOF
-
-    if [[ "$OVERALL_STATUS" == "SUCCESS" ]]; then
-        echo "안정적으로 운영되고 있는 것으로 평가됩니다." >> "$html_file"
-    elif [[ "$OVERALL_STATUS" == "WARNING" ]]; then
-        echo "대체로 양호하나 일부 개선이 필요한 것으로 평가됩니다." >> "$html_file"
-    else
-        echo "즉각적인 조치가 필요한 것으로 평가됩니다." >> "$html_file"
-    fi
-
-    cat >> "$html_file" << CONCLUSIONENDEOF
-        본 보고서에서 제시한 권고사항들을 단계적으로 적용하여 안정성, 보안, 성능을 지속적으로 개선할 것을 권장합니다.
+    <div style="border: 1px solid #000; min-height: 150px; padding: 15px; margin: 20px 0; background-color: #fafafa;">
+        <p style="color: #666; font-size: 10pt; margin-bottom: 10px;">
+            ※ 담당자가 직접 작성하는 영역입니다.
         </p>
+        <div style="min-height: 100px;">
+            <!-- 담당자가 직접 최종 결론 작성 -->
+        </div>
     </div>
 
-    <div style="margin-top: 50px; text-align: right;">
-        <p><strong>보고서 작성자: ${AUTHOR_NAME}</strong></p>
-        <p>작성일: ${REPORT_DATE}</p>
+    <div class="page-break"></div>
+
+    <h2><span class="section-number">7.</span>검토 및 승인</h2>
+
+    <table style="margin-top: 30px;">
+        <thead>
+            <tr>
+                <th style="width: 15%;">구분</th>
+                <th style="width: 20%;">소속/직급</th>
+                <th style="width: 15%;">성명</th>
+                <th style="width: 25%;">서명</th>
+                <th style="width: 25%;">날인</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr style="height: 80px;">
+                <td style="text-align: center;"><strong>점검자</strong></td>
+                <td style="text-align: center;">${AUTHOR_NAME}</td>
+                <td style="text-align: center;"></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr style="height: 80px;">
+                <td style="text-align: center;"><strong>검토자</strong></td>
+                <td style="text-align: center;"></td>
+                <td style="text-align: center;"></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr style="height: 80px;">
+                <td style="text-align: center;"><strong>승인자</strong></td>
+                <td style="text-align: center;"></td>
+                <td style="text-align: center;"></td>
+                <td></td>
+                <td></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div style="margin-top: 50px; text-align: center;">
+        <p style="font-size: 14pt;"><strong>${ORGANIZATION}</strong></p>
+        <p style="margin-top: 10px;">${REPORT_DATE}</p>
     </div>
-CONCLUSIONENDEOF
+CONCLUSIONEOF
 }
 
 # Main execution
@@ -1126,11 +1189,24 @@ main() {
         log_info "입력 JSON 파일: $JSON_INPUT"
     fi
 
-    # Collect cluster information
-    collect_cluster_info
-
-    # Collect Runway information
-    collect_runway_info
+    # Collect cluster information (skip if kubectl not accessible)
+    if timeout 3 kubectl cluster-info &>/dev/null; then
+        collect_cluster_info
+        collect_runway_info
+    else
+        log_warn "kubectl 클러스터에 접근할 수 없습니다. 기본 정보만 사용합니다."
+        # Use override values from .env if set, otherwise use default
+        K8S_VERSION="${K8S_VERSION_OVERRIDE:-확인 불가}"
+        CLUSTER_ENDPOINT="확인 불가"
+        NODE_COUNT="0"
+        NODE_DETAILS=""
+        CNI_TYPE="${CNI_TYPE_OVERRIDE:-확인 불가}"
+        STORAGE_CLASSES="확인 불가"
+        GPU_OPERATOR="${GPU_OPERATOR_STATUS_OVERRIDE:-확인 불가}"
+        RUNWAY_INSTALLED="${RUNWAY_INSTALLED_OVERRIDE:-확인 불가}"
+        RUNWAY_VERSION="${RUNWAY_VERSION_OVERRIDE:-확인 불가}"
+        KSERVE_INSTALLED="확인 불가"
+    fi
 
     # Parse JSON data
     parse_json_data

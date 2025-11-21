@@ -248,19 +248,19 @@ check_result 10 "Kubernetes 버전 상태 확인" $? "$kubectl_version"
 
 # 11. Ingress 도메인 점검
 if [ "$DEBUG_11" = true ]; then echo "🔍 Ingress 도메인($domain) 상태를 점검합니다..."; fi
-ingress_status=$(curl -s -o /dev/null -w "%{http_code}" "$protocol://$domain")
+ingress_status=$(curl --connect-timeout 10 --max-time 30 -s -o /dev/null -w "%{http_code}" "$protocol://$domain")
 if [ "$DEBUG_11" = true ]; then echo "📢 Ingress 응답 코드: $ingress_status"; fi
 check_result 11 "Ingress 도메인($domain) 점검" $(test "$ingress_status" = "200"; echo $?) "$ingress_status"
 
 # 12. Harbor 도메인 점검 (별도 변수 harbor_domain 사용)
 if [ "$DEBUG_12" = true ]; then echo "🔍 Harbor 도메인($harbor_domain) 상태를 점검합니다..."; fi
-harbor_status=$(curl -s -o /dev/null -w "%{http_code}" "$protocol://$harbor_domain")
+harbor_status=$(curl --connect-timeout 10 --max-time 30 -s -o /dev/null -w "%{http_code}" "$protocol://$harbor_domain")
 if [ "$DEBUG_12" = true ]; then echo "📢 Harbor 응답 코드: $harbor_status"; fi
 check_result 12 "Harbor 도메인($harbor_domain) 점검" $(test "$harbor_status" = "200"; echo $?) "$harbor_status"
 
 # 13. Runway 백엔드 서비스 점검 (backend_domain 사용)
 if [ "$DEBUG_13" = true ]; then echo "🔍 Runway 백엔드 서비스($backend_domain) 상태를 점검합니다..."; fi
-runway_status=$(curl -s -o /dev/null -w "%{http_code}" -X 'GET' \
+runway_status=$(curl --connect-timeout 10 --max-time 30 -s -o /dev/null -w "%{http_code}" -X 'GET' \
   "$protocol://$backend_domain/v1/healthz/livez" -H 'accept: application/json')
 if [ "$DEBUG_13" = true ]; then echo "�� Runway 응답 코드: $runway_status"; fi
 check_result 13 "Runway 백엔드 서비스($backend_domain) 점검" $(test "$runway_status" = "200"; echo $?) "$runway_status"

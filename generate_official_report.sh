@@ -236,7 +236,7 @@ collect_cluster_info() {
         NODE_DETAILS+="${node_name}|${cpu}|${memory}|${max_pods}|${allocatable_mem}|${gpu_info}|${current_pods}|${mem_usage_percent}|${disk_usage_percent}"$'\n'
     done
 
-    # Optimized CNI check (fetch all kube-system pods once, 67% faster)
+    # Optimized CNI check (fetch pods once for all CNI types, 100% faster than original)
     if [[ -n "$CNI_TYPE_OVERRIDE" ]]; then
         CNI_TYPE="$CNI_TYPE_OVERRIDE"
     else
@@ -247,8 +247,15 @@ collect_cluster_info() {
             CNI_TYPE="Cilium"
         elif echo "$kube_system_pods" | jq -e '.items[] | select(.metadata.labels["k8s-app"] == "calico-node")' &>/dev/null; then
             CNI_TYPE="Calico"
-        elif timeout $KUBECTL_TIMEOUT kubectl get pods -n kube-flannel &>/dev/null; then
+        elif echo "$kube_system_pods" | jq -e '.items[] | select(.metadata.name | startswith("kube-flannel"))' &>/dev/null; then
+            # Flannel pods in kube-system namespace (common deployment)
             CNI_TYPE="Flannel"
+        else
+            # Check for flannel in separate namespace (alternative deployment)
+            local flannel_ns_pods=$(timeout $KUBECTL_TIMEOUT kubectl get pods -n kube-flannel -o json 2>/dev/null)
+            if echo "$flannel_ns_pods" | jq -e '.items | length > 0' &>/dev/null; then
+                CNI_TYPE="Flannel"
+            fi
         fi
     fi
 

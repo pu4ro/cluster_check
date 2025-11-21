@@ -444,6 +444,7 @@ generate_html_report() {
             border-collapse: collapse;
             margin: 15px 0;
             font-size: 10pt;
+            page-break-inside: auto;
         }
 
         th, td {
@@ -639,7 +640,7 @@ add_cover_page() {
         <h1 class="cover-title">Runway Platform<br>정기 점검 보고서</h1>
 
         <div class="cover-info">
-            <table style="width: 60%; margin: 0 auto; border-collapse: collapse;">
+            <table style="width: 100%; margin: 0 auto; border-collapse: collapse;">
                 <tr>
                     <td style="border: 1px solid #333; padding: 10px; text-align: center; font-weight: bold; background-color: #f5f5f5; width: 30%;">점검일</td>
                     <td style="border: 1px solid #333; padding: 10px; text-align: center;">${REPORT_DATE:-&nbsp;}</td>
@@ -657,7 +658,7 @@ add_cover_page() {
 
         <div style="margin-top: 20px; padding-top: 15px;">
             <h3 style="text-align: center; margin-bottom: 10px; font-size: 13pt;">점검 확인</h3>
-            <table style="width: 60%; margin: 0 auto; border-collapse: collapse;">
+            <table style="width: 100%; margin: 0 auto; border-collapse: collapse;">
                 <thead>
                     <tr>
                         <th style="border: 1px solid #333; padding: 8px; text-align: center; background-color: #f5f5f5; width: 15%;">구분</th>

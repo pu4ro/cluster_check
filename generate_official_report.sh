@@ -410,6 +410,7 @@ generate_html_report() {
         .cover-page {
             text-align: center;
             padding: 50mm 0;
+            page-break-after: always;
         }
 
         .cover-title {
@@ -580,6 +581,23 @@ generate_html_report() {
             font-family: 'Courier New', monospace;
             font-size: 9pt;
         }
+
+        /* PDF 변환을 위한 인쇄 스타일 */
+        @media print {
+            body {
+                -webkit-print-color-adjust: exact;
+            }
+
+            .page {
+                page-break-after: always;
+                page-break-inside: avoid;
+            }
+
+            table, tr, td, th {
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -588,10 +606,7 @@ HTMLEOF
     # Add cover page
     add_cover_page "$html_file"
 
-    # Add page break
-    echo '<div class="page-break"></div>' >> "$html_file"
-
-    # Add executive summary
+    # Add executive summary (starts on new page due to cover-page page-break-after)
     add_executive_summary "$html_file"
 
     # Add page break
@@ -639,53 +654,24 @@ add_cover_page() {
         <h1 class="cover-title">Kubernetes 클러스터 및<br>Runway 플랫폼<br>정기 점검 보고서</h1>
 
         <div class="cover-info">
-            <div class="cover-info-row">
-                <span class="cover-label">대상 기관:</span>
-                <span>${ORGANIZATION:-&nbsp;}</span>
-            </div>
-            <div class="cover-info-row">
-                <span class="cover-label">작성자:</span>
-                <span>${AUTHOR_NAME:-&nbsp;}</span>
-            </div>
-            <div class="cover-info-row">
-                <span class="cover-label">작성일:</span>
-                <span>${REPORT_DATE:-&nbsp;}</span>
-            </div>
-        </div>
-
-        <div style="margin-top: 60px; border-top: 2px solid #333; padding-top: 30px;">
-            <h3 style="text-align: center; margin-bottom: 30px; font-size: 18pt;">점검 확인</h3>
-            <table style="width: 100%; border-collapse: collapse; margin: 0 auto;">
-                <thead>
-                    <tr>
-                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 25%;">구분</th>
-                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 25%;">소속</th>
-                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 25%;">성명</th>
-                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 25%;">서명</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td style="border: 1px solid #333; padding: 25px; text-align: center; font-weight: bold;">작성자</td>
-                        <td style="border: 1px solid #333; padding: 25px;">${INSPECTOR_DEPT:-&nbsp;}</td>
-                        <td style="border: 1px solid #333; padding: 25px;">${INSPECTOR_NAME:-&nbsp;}</td>
-                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
-                    </tr>
-                    <tr>
-                        <td style="border: 1px solid #333; padding: 25px; text-align: center; font-weight: bold;">담당자</td>
-                        <td style="border: 1px solid #333; padding: 25px;">${MANAGER_DEPT:-&nbsp;}</td>
-                        <td style="border: 1px solid #333; padding: 25px;">${MANAGER_NAME:-&nbsp;}</td>
-                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
-                    </tr>
-                </tbody>
+            <table style="width: 60%; margin: 0 auto; border-collapse: collapse;">
+                <tr>
+                    <td style="border: 1px solid #333; padding: 15px; text-align: center; font-weight: bold; background-color: #f5f5f5; width: 30%;">보고일</td>
+                    <td style="border: 1px solid #333; padding: 15px; text-align: center;">${REPORT_DATE:-&nbsp;}</td>
+                </tr>
+                <tr>
+                    <td style="border: 1px solid #333; padding: 15px; text-align: center; font-weight: bold; background-color: #f5f5f5;">고객사명</td>
+                    <td style="border: 1px solid #333; padding: 15px; text-align: center;">${ORGANIZATION:-&nbsp;}</td>
+                </tr>
+                <tr>
+                    <td style="border: 1px solid #333; padding: 15px; text-align: center; font-weight: bold; background-color: #f5f5f5;">점검자(담당자)</td>
+                    <td style="border: 1px solid #333; padding: 15px; text-align: center;">${AUTHOR_NAME:-&nbsp;}</td>
+                </tr>
+                <tr>
+                    <td style="border: 1px solid #333; padding: 15px; text-align: center; font-weight: bold; background-color: #f5f5f5;">버전</td>
+                    <td style="border: 1px solid #333; padding: 15px; text-align: center;">${REPORT_VERSION}</td>
+                </tr>
             </table>
-        </div>
-
-        <div style="margin-top: 40px; text-align: center;">
-            <div class="cover-info-row" style="justify-content: center;">
-                <span class="cover-label">문서 버전:</span>
-                <span>${REPORT_VERSION}</span>
-            </div>
         </div>
     </div>
 COVEREOF
@@ -706,8 +692,6 @@ add_executive_summary() {
     fi
 
     cat >> "$html_file" << SUMMARYEOF
-    <div class="page-break"></div>
-
     <h2><span class="section-number">1.</span>보고서 요약 (Executive Summary)</h2>
 
     <h3><span class="section-number">1.1.</span>점검 목적</h3>

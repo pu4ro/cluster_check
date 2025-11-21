@@ -664,10 +664,6 @@ add_cover_page() {
                     <td style="border: 1px solid #333; padding: 10px; text-align: center;">${ORGANIZATION:-&nbsp;}</td>
                 </tr>
                 <tr>
-                    <td style="border: 1px solid #333; padding: 10px; text-align: center; font-weight: bold; background-color: #f5f5f5;">점검자(담당자)</td>
-                    <td style="border: 1px solid #333; padding: 10px; text-align: center;">${AUTHOR_NAME:-&nbsp;}</td>
-                </tr>
-                <tr>
                     <td style="border: 1px solid #333; padding: 10px; text-align: center; font-weight: bold; background-color: #f5f5f5;">버전</td>
                     <td style="border: 1px solid #333; padding: 10px; text-align: center;">${REPORT_VERSION}</td>
                 </tr>

@@ -435,17 +435,6 @@ generate_html_report() {
             margin: 0 auto;
         }
 
-        .logo-area {
-            width: 100%;
-            padding: 40mm 0 20mm 0;
-        }
-
-        .org-name {
-            font-size: 16px;
-            font-weight: 500;
-            color: #333;
-        }
-
         .title-area {
             flex: 1;
             display: flex;
@@ -453,13 +442,15 @@ generate_html_report() {
             align-items: center;
             justify-content: center;
             width: 100%;
+            padding-top: 60mm;
         }
 
         .subtitle {
-            font-size: 18px;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 15mm;
+            font-size: 36px;
+            font-weight: 700;
+            color: #000;
+            margin-bottom: 10mm;
+            letter-spacing: 2px;
         }
 
         .main-title {
@@ -720,10 +711,6 @@ add_cover_page() {
     cat >> "$html_file" << COVEREOF
     <div class="cover-page">
         <div class="cover-container">
-            <div class="logo-area">
-                <div class="org-name">${ORGANIZATION:-한국수자원공사}</div>
-            </div>
-
             <div class="title-area">
                 <div class="subtitle">Runway Platform</div>
                 <div class="main-title">정기 점검 보고서</div>

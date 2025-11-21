@@ -645,34 +645,6 @@ add_cover_page() {
             </div>
         </div>
 
-        <div style="margin-top: 60px; border-top: 2px solid #333; padding-top: 30px;">
-            <h3 style="text-align: center; margin-bottom: 30px; font-size: 18pt;">점검 확인</h3>
-            <table style="width: 100%; border-collapse: collapse; margin: 0 auto;">
-                <thead>
-                    <tr>
-                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 25%;">구분</th>
-                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 25%;">소속</th>
-                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 25%;">성명</th>
-                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 25%;">서명</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td style="border: 1px solid #333; padding: 25px; text-align: center; font-weight: bold;">작성자</td>
-                        <td style="border: 1px solid #333; padding: 25px;">${INSPECTOR_DEPT:-&nbsp;}</td>
-                        <td style="border: 1px solid #333; padding: 25px;">${INSPECTOR_NAME:-&nbsp;}</td>
-                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
-                    </tr>
-                    <tr>
-                        <td style="border: 1px solid #333; padding: 25px; text-align: center; font-weight: bold;">담당자</td>
-                        <td style="border: 1px solid #333; padding: 25px;">${MANAGER_DEPT:-&nbsp;}</td>
-                        <td style="border: 1px solid #333; padding: 25px;">${MANAGER_NAME:-&nbsp;}</td>
-                        <td style="border: 1px solid #333; padding: 25px;">&nbsp;</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
         <div style="margin-top: 40px; text-align: center;">
             <div class="cover-info-row" style="justify-content: center;">
                 <span class="cover-label">문서 버전:</span>

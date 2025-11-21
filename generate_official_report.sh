@@ -656,7 +656,7 @@ add_cover_page() {
         <div class="cover-info">
             <table style="width: 60%; margin: 0 auto; border-collapse: collapse;">
                 <tr>
-                    <td style="border: 1px solid #333; padding: 10px; text-align: center; font-weight: bold; background-color: #f5f5f5; width: 30%;">보고일</td>
+                    <td style="border: 1px solid #333; padding: 10px; text-align: center; font-weight: bold; background-color: #f5f5f5; width: 30%;">점검일</td>
                     <td style="border: 1px solid #333; padding: 10px; text-align: center;">${REPORT_DATE:-&nbsp;}</td>
                 </tr>
                 <tr>

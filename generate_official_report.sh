@@ -419,23 +419,112 @@ generate_html_report() {
 
         /* 표지 스타일 */
         .cover-page {
-            text-align: center;
-            padding: 40mm 0 20mm 0;
             page-break-after: always;
             page-break-inside: avoid;
         }
 
-        .cover-title {
-            font-size: 28px;
-            font-weight: bold;
-            margin-bottom: 40mm;
-            border: none;
+        .cover-container {
+            width: 100%;
+            max-width: 170mm;
+            height: 257mm;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            text-align: center;
+            margin: 0 auto;
         }
 
-        .cover-info {
-            font-size: 12px;
-            line-height: 1.5;
-            margin-top: 0;
+        .logo-area {
+            width: 100%;
+            padding: 30mm 0 20mm 0;
+        }
+
+        .logo-placeholder {
+            width: 80px;
+            height: 80px;
+            border: 2px solid #999;
+            margin: 0 auto 15px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: #999;
+        }
+
+        .org-name {
+            font-size: 16px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        .title-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .subtitle {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15mm;
+        }
+
+        .main-title {
+            font-size: 36px;
+            font-weight: 700;
+            color: #000;
+            margin-bottom: 40mm;
+            letter-spacing: 2px;
+        }
+
+        .info-area {
+            width: 100%;
+            margin-bottom: 30mm;
+        }
+
+        .info-table {
+            width: 100%;
+            max-width: 400px;
+            margin: 0 auto;
+            border-collapse: collapse;
+            border: 1px solid #ccc;
+        }
+
+        .info-table tr {
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .info-table tr:last-child {
+            border-bottom: none;
+        }
+
+        .info-table td {
+            padding: 12px 15px;
+            font-size: 13px;
+            text-align: left;
+        }
+
+        .info-table td:first-child {
+            width: 35%;
+            font-weight: 600;
+            background-color: #f5f5f5;
+            border-right: 1px solid #e0e0e0;
+        }
+
+        .footer-area {
+            width: 100%;
+            padding-bottom: 10mm;
+        }
+
+        .footer-text {
+            font-size: 11px;
+            color: #666;
+            line-height: 1.6;
         }
 
         /* 테이블 스타일 (흑백 최적화) */
@@ -642,18 +731,39 @@ add_cover_page() {
 
     cat >> "$html_file" << COVEREOF
     <div class="cover-page">
-        <div style="text-align: center; padding: 60mm 0 0 0;">
-            <div style="margin-bottom: 10mm;">
-                <p style="font-size: 18px; font-weight: bold; margin: 0;">Runway Platform</p>
+        <div class="cover-container">
+            <div class="logo-area">
+                <div class="logo-placeholder">LOGO</div>
+                <div class="org-name">${ORGANIZATION:-한국수자원공사}</div>
             </div>
 
-            <div style="margin-bottom: 50mm;">
-                <h1 style="font-size: 32px; font-weight: bold; margin: 0; border: none;">정기 점검 보고서</h1>
+            <div class="title-area">
+                <div class="subtitle">Runway Platform</div>
+                <div class="main-title">정기 점검 보고서</div>
             </div>
 
-            <div style="font-size: 14px; line-height: 2.5;">
-                <p style="margin: 0;">${REPORT_DATE:-&nbsp;}</p>
-                <p style="margin: 0; font-weight: bold; font-size: 16px;">${ORGANIZATION:-&nbsp;}</p>
+            <div class="info-area">
+                <table class="info-table">
+                    <tr>
+                        <td>보고일</td>
+                        <td>${REPORT_DATE:-&nbsp;}</td>
+                    </tr>
+                    <tr>
+                        <td>시스템명</td>
+                        <td>Runway Platform</td>
+                    </tr>
+                    <tr>
+                        <td>담당부서</td>
+                        <td>${MANAGER_DEPT:-디지털관리처}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="footer-area">
+                <div class="footer-text">
+                    작성: 마키나락스<br>
+                    Makinarocks Inc.
+                </div>
             </div>
         </div>
     </div>

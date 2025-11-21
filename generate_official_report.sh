@@ -673,6 +673,34 @@ add_cover_page() {
                 </tr>
             </table>
         </div>
+
+        <div style="margin-top: 40px; border-top: 2px solid #333; padding-top: 30px;">
+            <h3 style="text-align: center; margin-bottom: 20px; font-size: 16pt;">점검 확인</h3>
+            <table style="width: 80%; margin: 0 auto; border-collapse: collapse;">
+                <thead>
+                    <tr>
+                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 20%;">구분</th>
+                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 25%;">소속</th>
+                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 20%;">성명</th>
+                        <th style="border: 1px solid #333; padding: 12px; text-align: center; background-color: #f5f5f5; width: 35%;">서명</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #333; padding: 20px; text-align: center; font-weight: bold;">작성자</td>
+                        <td style="border: 1px solid #333; padding: 20px;">${INSPECTOR_DEPT:-&nbsp;}</td>
+                        <td style="border: 1px solid #333; padding: 20px;">${INSPECTOR_NAME:-&nbsp;}</td>
+                        <td style="border: 1px solid #333; padding: 20px;">&nbsp;</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #333; padding: 20px; text-align: center; font-weight: bold;">담당자</td>
+                        <td style="border: 1px solid #333; padding: 20px;">${MANAGER_DEPT:-&nbsp;}</td>
+                        <td style="border: 1px solid #333; padding: 20px;">${MANAGER_NAME:-&nbsp;}</td>
+                        <td style="border: 1px solid #333; padding: 20px;">&nbsp;</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 COVEREOF
 }

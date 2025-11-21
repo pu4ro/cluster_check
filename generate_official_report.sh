@@ -628,7 +628,7 @@ add_cover_page() {
 
     cat >> "$html_file" << COVEREOF
     <div class="cover-page">
-        <h1 class="cover-title">Kubernetes 클러스터 및<br>Runway 플랫폼<br>기술 점검 보고서</h1>
+        <h1 class="cover-title">Kubernetes 클러스터 및<br>Runway 플랫폼<br>정기 점검 보고서</h1>
 
         <div class="cover-info">
             <div class="cover-info-row">

@@ -198,7 +198,7 @@ collect_cluster_info() {
             mem_usage_percent=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep -w "memory" | awk '{print $3}' | tr -d '()%' | head -1 || echo "0")
         fi
 
-        # Get disk usage from disk-usage-exporter DaemonSet
+        # Get disk usage from disk-usage-exporter DaemonSet only
         local disk_usage_percent="N/A"
 
         # Find disk-usage-exporter pod for this node
@@ -210,14 +210,6 @@ collect_cluster_info() {
             if [[ -n "$df_output" ]]; then
                 # Extract Use% column (5th field, remove % sign)
                 disk_usage_percent=$(echo "$df_output" | awk '{print $5}' | tr -d '%' || echo "N/A")
-            fi
-        fi
-
-        # Fallback: If disk-usage-exporter not available, check ephemeral-storage
-        if [[ "$disk_usage_percent" == "N/A" && -n "$describe_output" ]]; then
-            local ephemeral_usage=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep -w "ephemeral-storage" | awk '{print $3}' | tr -d '()%' | head -1 2>/dev/null || echo "")
-            if [[ -n "$ephemeral_usage" && "$ephemeral_usage" =~ ^[0-9]+$ && "$ephemeral_usage" -gt 0 ]]; then
-                disk_usage_percent="$ephemeral_usage"
             fi
         fi
 

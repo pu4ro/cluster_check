@@ -642,51 +642,19 @@ add_cover_page() {
 
     cat >> "$html_file" << COVEREOF
     <div class="cover-page">
-        <h1 class="cover-title">Runway Platform<br>정기 점검 보고서</h1>
+        <div style="text-align: center; padding: 60mm 0 0 0;">
+            <div style="margin-bottom: 10mm;">
+                <p style="font-size: 18px; font-weight: bold; margin: 0;">Runway Platform</p>
+            </div>
 
-        <div class="cover-info">
-            <table style="width: 100%; margin: 0 auto; border-collapse: collapse;">
-                <tr>
-                    <td style="border: 1px solid #333; padding: 10px; text-align: center; font-weight: bold; background-color: #f5f5f5; width: 30%;">점검일</td>
-                    <td style="border: 1px solid #333; padding: 10px; text-align: center;">${REPORT_DATE:-&nbsp;}</td>
-                </tr>
-                <tr>
-                    <td style="border: 1px solid #333; padding: 10px; text-align: center; font-weight: bold; background-color: #f5f5f5;">고객사명</td>
-                    <td style="border: 1px solid #333; padding: 10px; text-align: center;">${ORGANIZATION:-&nbsp;}</td>
-                </tr>
-                <tr>
-                    <td style="border: 1px solid #333; padding: 10px; text-align: center; font-weight: bold; background-color: #f5f5f5;">버전</td>
-                    <td style="border: 1px solid #333; padding: 10px; text-align: center;">${REPORT_VERSION}</td>
-                </tr>
-            </table>
-        </div>
+            <div style="margin-bottom: 50mm;">
+                <h1 style="font-size: 32px; font-weight: bold; margin: 0; border: none;">정기 점검 보고서</h1>
+            </div>
 
-        <div style="margin-top: 20px; padding-top: 15px;">
-            <h3 style="text-align: center; margin-bottom: 10px; font-size: 13pt;">점검 확인</h3>
-            <table style="width: 100%; margin: 0 auto; border-collapse: collapse;">
-                <thead>
-                    <tr>
-                        <th style="border: 1px solid #333; padding: 8px; text-align: center; background-color: #f5f5f5; width: 15%;">구분</th>
-                        <th style="border: 1px solid #333; padding: 8px; text-align: center; background-color: #f5f5f5; width: 25%;">소속</th>
-                        <th style="border: 1px solid #333; padding: 8px; text-align: center; background-color: #f5f5f5; width: 20%;">성명</th>
-                        <th style="border: 1px solid #333; padding: 8px; text-align: center; background-color: #f5f5f5; width: 40%;">서명</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td style="border: 1px solid #333; padding: 12px; text-align: center; font-weight: bold;">작성자</td>
-                        <td style="border: 1px solid #333; padding: 12px;">${INSPECTOR_DEPT:-&nbsp;}</td>
-                        <td style="border: 1px solid #333; padding: 12px;">${INSPECTOR_NAME:-&nbsp;}</td>
-                        <td style="border: 1px solid #333; padding: 12px;">&nbsp;</td>
-                    </tr>
-                    <tr>
-                        <td style="border: 1px solid #333; padding: 12px; text-align: center; font-weight: bold;">담당자</td>
-                        <td style="border: 1px solid #333; padding: 12px;">${MANAGER_DEPT:-&nbsp;}</td>
-                        <td style="border: 1px solid #333; padding: 12px;">${MANAGER_NAME:-&nbsp;}</td>
-                        <td style="border: 1px solid #333; padding: 12px;">&nbsp;</td>
-                    </tr>
-                </tbody>
-            </table>
+            <div style="font-size: 14px; line-height: 2.5;">
+                <p style="margin: 0;">${REPORT_DATE:-&nbsp;}</p>
+                <p style="margin: 0; font-weight: bold; font-size: 16px;">${ORGANIZATION:-&nbsp;}</p>
+            </div>
         </div>
     </div>
 COVEREOF
@@ -1231,6 +1199,33 @@ add_final_conclusion() {
             <!-- 담당자가 직접 최종 결론 작성 -->
         </div>
     </div>
+
+    <h3 style="margin-top: 30px;"><span class="section-number">6.1.</span>점검 확인</h3>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 15%;">구분</th>
+                <th style="width: 25%;">소속</th>
+                <th style="width: 20%;">성명</th>
+                <th style="width: 40%;">서명</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td style="text-align: center; font-weight: bold;">작성자</td>
+                <td>${INSPECTOR_DEPT:-&nbsp;}</td>
+                <td>${INSPECTOR_NAME:-&nbsp;}</td>
+                <td>&nbsp;</td>
+            </tr>
+            <tr>
+                <td style="text-align: center; font-weight: bold;">담당자</td>
+                <td>${MANAGER_DEPT:-&nbsp;}</td>
+                <td>${MANAGER_NAME:-&nbsp;}</td>
+                <td>&nbsp;</td>
+            </tr>
+        </tbody>
+    </table>
 
 CONCLUSIONEOF
 }

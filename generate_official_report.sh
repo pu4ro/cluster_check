@@ -437,19 +437,7 @@ generate_html_report() {
 
         .logo-area {
             width: 100%;
-            padding: 30mm 0 20mm 0;
-        }
-
-        .logo-placeholder {
-            width: 80px;
-            height: 80px;
-            border: 2px solid #999;
-            margin: 0 auto 15px auto;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 10px;
-            color: #999;
+            padding: 40mm 0 20mm 0;
         }
 
         .org-name {
@@ -733,7 +721,6 @@ add_cover_page() {
     <div class="cover-page">
         <div class="cover-container">
             <div class="logo-area">
-                <div class="logo-placeholder">LOGO</div>
                 <div class="org-name">${ORGANIZATION:-한국수자원공사}</div>
             </div>
 

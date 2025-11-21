@@ -169,7 +169,7 @@ collect_cluster_info() {
     NODE_COUNT=$(timeout $KUBECTL_TIMEOUT kubectl get nodes --no-headers 2>/dev/null | wc -l 2>/dev/null || echo "0")
 
     # Get detailed node information including capacity, allocatable, GPU, and usage
-    # Format: name|cpu|memory|max_pods|allocatable_mem|gpu_count|current_pods|memory_used_percent|disk_used_percent
+    # Format: name|cpu|memory|max_pods|allocatable_mem|gpu_info|current_pods|memory_used_percent|disk_used_percent
     NODE_DETAILS=""
     local node_list=$(timeout 10 kubectl get nodes -o json 2>/dev/null | jq -r '.items[].metadata.name' 2>/dev/null || echo "")
 
@@ -182,18 +182,34 @@ collect_cluster_info() {
         local memory=$(echo "$node_info" | jq -r '.status.capacity.memory' 2>/dev/null || echo "0Ki")
         local max_pods=$(echo "$node_info" | jq -r '.status.capacity.pods' 2>/dev/null || echo "0")
         local allocatable_mem=$(echo "$node_info" | jq -r '.status.allocatable.memory' 2>/dev/null || echo "0Ki")
-        local gpu_count="0"
-
-        if [[ "$ENABLE_GPU_MONITORING" == "true" ]]; then
-            gpu_count=$(echo "$node_info" | jq -r '.status.capacity."nvidia.com/gpu" // "0"' 2>/dev/null || echo "0")
-        fi
 
         # Get current pod count
         local current_pods=$(timeout 5 kubectl get pods --all-namespaces --field-selector spec.nodeName="$node_name" --no-headers 2>/dev/null | wc -l 2>/dev/null || echo "0")
 
+        # Get describe node output once for both GPU and memory usage
+        local describe_output=$(timeout 5 kubectl describe node "$node_name" 2>/dev/null || echo "")
+
+        # Get GPU info
+        local gpu_info="0|0|N/A"
+        if [[ "$ENABLE_GPU_MONITORING" == "true" ]]; then
+            local gpu_capacity=$(echo "$node_info" | jq -r '.status.capacity."nvidia.com/gpu" // "0"' 2>/dev/null || echo "0")
+            if [[ "$gpu_capacity" != "0" ]]; then
+                # Get GPU allocated from describe node
+                local gpu_allocated="0"
+                if [[ -n "$describe_output" ]]; then
+                    gpu_allocated=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep "nvidia.com/gpu" | awk '{print $2}' | head -1 || echo "0")
+                fi
+                # Calculate percentage
+                local gpu_percent="0"
+                if [[ "$gpu_capacity" != "0" ]]; then
+                    gpu_percent=$(echo "scale=0; ($gpu_allocated * 100) / $gpu_capacity" | bc 2>/dev/null || echo "0")
+                fi
+                gpu_info="${gpu_allocated}|${gpu_capacity}|${gpu_percent}"
+            fi
+        fi
+
         # Get memory usage from describe node
         local mem_usage_percent="0"
-        local describe_output=$(timeout 5 kubectl describe node "$node_name" 2>/dev/null || echo "")
         if [[ -n "$describe_output" ]]; then
             mem_usage_percent=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep -w "memory" | awk '{print $3}' | tr -d '()%' | head -1 || echo "0")
         fi
@@ -208,12 +224,12 @@ collect_cluster_info() {
             # Get disk usage from df -h / in the exporter pod
             local df_output=$(timeout 5 kubectl exec -n runway "$exporter_pod" -- df -h / 2>/dev/null | tail -1 || echo "")
             if [[ -n "$df_output" ]]; then
-                # Extract Use% column (5th field, remove % sign)
-                disk_usage_percent=$(echo "$df_output" | awk '{print $5}' | tr -d '%' || echo "N/A")
+                # Extract Use% column (5th field, keep % sign)
+                disk_usage_percent=$(echo "$df_output" | awk '{print $5}' || echo "N/A")
             fi
         fi
 
-        NODE_DETAILS+="${node_name}|${cpu}|${memory}|${max_pods}|${allocatable_mem}|${gpu_count}|${current_pods}|${mem_usage_percent}|${disk_usage_percent}"$'\n'
+        NODE_DETAILS+="${node_name}|${cpu}|${memory}|${max_pods}|${allocatable_mem}|${gpu_info}|${current_pods}|${mem_usage_percent}|${disk_usage_percent}"$'\n'
     done
 
     # CNI check (with timeout, use override if set)
@@ -892,8 +908,9 @@ K8SEOF
     # Check if any node has GPU
     local has_gpu=false
     if [[ -n "$NODE_DETAILS" ]]; then
-        while IFS='|' read -r name cpu memory max_pods allocatable_mem gpu_count current_pods mem_percent disk_percent; do
-            if [[ "$gpu_count" != "0" && -n "$gpu_count" ]]; then
+        while IFS='|' read -r name cpu memory max_pods allocatable_mem gpu_info current_pods mem_percent disk_percent; do
+            local gpu_capacity=$(echo "$gpu_info" | cut -d'|' -f2)
+            if [[ "$gpu_capacity" != "0" && -n "$gpu_capacity" ]]; then
                 has_gpu=true
                 break
             fi
@@ -944,7 +961,7 @@ TABLEHEADEREOF
 
     # Add node details
     if [[ -n "$NODE_DETAILS" ]]; then
-        while IFS='|' read -r name cpu memory max_pods allocatable_mem gpu_count current_pods mem_percent disk_percent; do
+        while IFS='|' read -r name cpu memory max_pods allocatable_mem gpu_info current_pods mem_percent disk_percent; do
             [[ -z "$name" ]] && continue
 
             # Convert memory from Ki to GB (1 Ki = 1024 bytes, 1 GB = 1073741824 bytes)
@@ -959,13 +976,17 @@ TABLEHEADEREOF
             # Format memory percentage
             [[ -z "$mem_percent" || "$mem_percent" == "N/A" ]] && mem_percent="0"
 
-            # Format disk percentage
+            # Format disk percentage - already has % sign from df output
             [[ -z "$disk_percent" || "$disk_percent" == "N/A" ]] && disk_percent="N/A"
 
-            # Calculate GPU usage percentage (for now, show count as placeholder)
-            local gpu_percent="N/A"
-            if [[ "$gpu_count" != "0" && -n "$gpu_count" ]]; then
-                gpu_percent="${gpu_count} GPU"
+            # Parse GPU info: allocated|capacity|percent
+            local gpu_allocated=$(echo "$gpu_info" | cut -d'|' -f1)
+            local gpu_capacity=$(echo "$gpu_info" | cut -d'|' -f2)
+            local gpu_percent_val=$(echo "$gpu_info" | cut -d'|' -f3)
+
+            local gpu_display="N/A"
+            if [[ "$gpu_capacity" != "0" && -n "$gpu_capacity" ]]; then
+                gpu_display="${gpu_allocated}/${gpu_capacity} gpus (${gpu_percent_val}%)"
             fi
 
             if [[ "$has_gpu" == "true" ]]; then
@@ -977,7 +998,7 @@ TABLEHEADEREOF
                 <td style="text-align: center;">${current_pods}/${max_pods}</td>
                 <td style="text-align: center;">${pod_percent}%</td>
                 <td style="text-align: center;">${mem_percent}%</td>
-                <td style="text-align: center;">${gpu_percent}</td>
+                <td style="text-align: center;">${gpu_display}</td>
                 <td style="text-align: center;">${disk_percent}</td>
             </tr>
 NODEEOF

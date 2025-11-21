@@ -175,7 +175,8 @@ collect_cluster_info() {
     # Fetch all data once to avoid repeated kubectl calls
     local all_nodes_json=$(timeout 10 kubectl get nodes -o json 2>/dev/null || echo '{"items":[]}')
     local all_pods_json=$(timeout 10 kubectl get pods --all-namespaces -o json 2>/dev/null || echo '{"items":[]}')
-    local all_exporter_pods=$(timeout 5 kubectl get pods -n runway -l app.kubernetes.io/name=disk-usage-exporter -o json 2>/dev/null || echo '{"items":[]}')
+    # Use Flannel DaemonSet pods for disk usage (available on all nodes)
+    local all_flannel_pods=$(timeout 5 kubectl get pods -n kube-flannel -l app=flannel -o json 2>/dev/null || echo '{"items":[]}')
 
     local node_list=$(echo "$all_nodes_json" | jq -r '.items[].metadata.name' 2>/dev/null || echo "")
 
@@ -220,13 +221,13 @@ collect_cluster_info() {
             mem_usage_percent=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep -w "memory" | awk '{print $3}' | tr -d '()%' | head -1 || echo "0")
         fi
 
-        # Get disk usage from pre-fetched exporter pods
+        # Get disk usage from Flannel DaemonSet pods
         local disk_usage_percent="N/A"
-        local exporter_pod=$(echo "$all_exporter_pods" | jq -r ".items[] | select(.spec.nodeName==\"$node_name\") | .metadata.name" 2>/dev/null | head -1 || echo "")
+        local flannel_pod=$(echo "$all_flannel_pods" | jq -r ".items[] | select(.spec.nodeName==\"$node_name\") | .metadata.name" 2>/dev/null | head -1 || echo "")
 
-        if [[ -n "$exporter_pod" ]]; then
-            # Get disk usage from df -h / in the exporter pod
-            local df_output=$(timeout 5 kubectl exec -n runway "$exporter_pod" -- df -h / 2>/dev/null | tail -1 || echo "")
+        if [[ -n "$flannel_pod" ]]; then
+            # Get disk usage from df -h in the Flannel pod (overlay filesystem shows node disk usage)
+            local df_output=$(timeout 5 kubectl exec -n kube-flannel "$flannel_pod" -- df -h / 2>/dev/null | grep overlay | head -1 || echo "")
             if [[ -n "$df_output" ]]; then
                 # Extract Use% column (5th field, keep % sign)
                 disk_usage_percent=$(echo "$df_output" | awk '{print $5}' || echo "N/A")

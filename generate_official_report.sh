@@ -339,7 +339,7 @@ generate_html_report() {
         /* A4 PDF 인쇄 최적화 CSS */
         @page {
             size: A4;
-            margin: 20mm;
+            margin: 18mm;
         }
 
         @media print {
@@ -347,6 +347,8 @@ generate_html_report() {
                 margin: 0;
                 padding: 0;
                 background: white;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
             }
 
             .page-break {
@@ -365,91 +367,90 @@ generate_html_report() {
             box-sizing: border-box;
         }
 
-        body {
-            font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
-            font-size: 11pt;
-            line-height: 1.6;
+        html, body {
+            font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;
+            font-size: 12px;
+            line-height: 1.4;
             color: #000;
             background: #fff;
-            max-width: 210mm;
-            margin: 0 auto;
-            padding: 20mm;
         }
 
-        /* 흑백 출력 최적화 */
-        h1, h2, h3, h4, h5, h6 {
+        body {
+            max-width: 100%;
+            width: 100%;
+        }
+
+        /* 제목 스타일 - 최소 간격 */
+        h1, h2, h3, h4 {
             color: #000;
             font-weight: bold;
-            margin-top: 1.5em;
-            margin-bottom: 0.5em;
+            margin: 0 0 6px 0;
+            page-break-after: avoid;
         }
 
         h1 {
-            font-size: 24pt;
+            font-size: 24px;
             text-align: center;
-            border-bottom: 2px solid #000;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 8px;
         }
 
         h2 {
-            font-size: 16pt;
+            font-size: 16px;
             border-bottom: 1px solid #000;
-            padding-bottom: 5px;
+            padding-bottom: 3px;
+            margin-bottom: 6px;
         }
 
         h3 {
-            font-size: 13pt;
+            font-size: 14px;
+            margin-bottom: 4px;
         }
 
         h4 {
-            font-size: 12pt;
+            font-size: 13px;
+            margin-bottom: 4px;
+        }
+
+        /* 섹션 스타일 */
+        section {
+            margin-bottom: 8px;
+            page-break-inside: avoid;
         }
 
         /* 표지 스타일 */
         .cover-page {
             text-align: center;
-            padding: 15mm 0 10mm 0;
+            padding: 40mm 0 20mm 0;
             page-break-after: always;
+            page-break-inside: avoid;
         }
 
         .cover-title {
-            font-size: 24pt;
+            font-size: 28px;
             font-weight: bold;
-            margin-bottom: 20mm;
+            margin-bottom: 40mm;
             border: none;
         }
 
         .cover-info {
-            font-size: 12pt;
-            line-height: 2;
+            font-size: 12px;
+            line-height: 1.5;
             margin-top: 0;
-        }
-
-        .cover-info-row {
-            margin: 10px 0;
-        }
-
-        .cover-label {
-            display: inline-block;
-            width: 100px;
-            font-weight: bold;
-            text-align: right;
-            margin-right: 20px;
         }
 
         /* 테이블 스타일 (흑백 최적화) */
         table {
             width: 100%;
+            max-width: 100%;
             border-collapse: collapse;
-            margin: 15px 0;
-            font-size: 10pt;
-            page-break-inside: auto;
+            margin: 6px 0;
+            font-size: 11px;
+            page-break-inside: avoid;
         }
 
         th, td {
             border: 1px solid #000;
-            padding: 8px;
+            padding: 4px 6px;
             text-align: left;
             vertical-align: top;
         }
@@ -504,50 +505,53 @@ generate_html_report() {
 
         /* 리스트 스타일 */
         ul, ol {
-            margin-left: 20px;
-            margin-bottom: 10px;
+            margin-left: 18px;
+            margin-bottom: 6px;
+            page-break-inside: avoid;
         }
 
         li {
-            margin: 5px 0;
+            margin: 2px 0;
         }
 
         /* 섹션 번호 */
         .section-number {
             font-weight: bold;
-            margin-right: 10px;
+            margin-right: 8px;
         }
 
         /* 요약 박스 */
         .summary-box {
-            border: 2px solid #000;
-            padding: 15px;
-            margin: 20px 0;
+            border: 1px solid #000;
+            padding: 8px;
+            margin: 6px 0;
             background-color: #f9f9f9;
+            page-break-inside: avoid;
         }
 
         .summary-item {
-            margin: 8px 0;
-            font-size: 11pt;
+            margin: 4px 0;
+            font-size: 11px;
         }
 
         .summary-label {
             font-weight: bold;
             display: inline-block;
-            width: 150px;
+            width: 140px;
         }
 
         /* 주의사항 박스 */
         .notice-box {
             border: 1px solid #666;
-            padding: 10px;
-            margin: 15px 0;
+            padding: 6px;
+            margin: 6px 0;
             background-color: #f0f0f0;
+            page-break-inside: avoid;
         }
 
         .notice-title {
             font-weight: bold;
-            margin-bottom: 5px;
+            margin-bottom: 4px;
         }
 
         /* 페이지 번호 영역 (인쇄용) */
@@ -555,14 +559,15 @@ generate_html_report() {
             position: fixed;
             bottom: 10mm;
             right: 10mm;
-            font-size: 9pt;
+            font-size: 9px;
             color: #666;
         }
 
         /* 문단 스타일 */
         p {
-            margin: 10px 0;
+            margin: 5px 0;
             text-align: justify;
+            page-break-inside: avoid;
         }
 
         /* 코드/명령어 스타일 */
@@ -773,9 +778,7 @@ add_check_summary_table() {
     local html_file="$1"
 
     cat >> "$html_file" << TABLEEOF
-    <div class="page-break"></div>
-
-    <h2><span class="section-number">2.</span>점검 항목 및 결과 요약</h2>
+    <h2 style="page-break-before: always;"><span class="section-number">2.</span>점검 항목 및 결과 요약</h2>
 
     <p>다음은 수행된 모든 점검 항목의 결과를 요약한 표입니다. 각 항목별 상세 내용은 후속 섹션에서 다룹니다.</p>
 
@@ -860,9 +863,7 @@ add_kubernetes_details() {
     local html_file="$1"
 
     cat >> "$html_file" << K8SEOF
-    <div class="page-break"></div>
-
-    <h2><span class="section-number">3.</span>Kubernetes Cluster 점검 상세</h2>
+    <h2 style="page-break-before: always;"><span class="section-number">3.</span>Kubernetes Cluster 점검 상세</h2>
 
     <h3><span class="section-number">3.1.</span>클러스터 전반 정보</h3>
 
@@ -1049,9 +1050,7 @@ add_runway_details() {
     local html_file="$1"
 
     cat >> "$html_file" << RUNWAYEOF
-    <div class="page-break"></div>
-
-    <h2><span class="section-number">4.</span>Runway 플랫폼 점검 상세</h2>
+    <h2 style="page-break-before: always;"><span class="section-number">4.</span>Runway 플랫폼 점검 상세</h2>
 
     <h3><span class="section-number">4.1.</span>플랫폼 구성 정보</h3>
 
@@ -1113,9 +1112,7 @@ add_issue_list() {
     local html_file="$1"
 
     cat >> "$html_file" << ISSUEEOF
-    <div class="page-break"></div>
-
-    <h2><span class="section-number">5.</span>문제 발견 사항 (이슈 리스트)</h2>
+    <h2 style="page-break-before: always;"><span class="section-number">5.</span>문제 발견 사항 (이슈 리스트)</h2>
 
     <p>점검 결과 발견된 주의 및 위험 항목에 대한 상세 분석입니다.</p>
 
@@ -1224,9 +1221,7 @@ add_final_conclusion() {
     local html_file="$1"
 
     cat >> "$html_file" << CONCLUSIONEOF
-    <div class="page-break"></div>
-
-    <h2><span class="section-number">6.</span>최종 결론</h2>
+    <h2 style="page-break-before: always;"><span class="section-number">6.</span>최종 결론</h2>
 
     <div style="border: 1px solid #000; min-height: 150px; padding: 15px; margin: 20px 0; background-color: #fafafa;">
         <p style="color: #666; font-size: 10pt; margin-bottom: 10px;">

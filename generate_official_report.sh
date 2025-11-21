@@ -706,6 +706,8 @@ add_executive_summary() {
     fi
 
     cat >> "$html_file" << SUMMARYEOF
+    <div class="page-break"></div>
+
     <h2><span class="section-number">1.</span>보고서 요약 (Executive Summary)</h2>
 
     <h3><span class="section-number">1.1.</span>점검 목적</h3>
@@ -777,6 +779,8 @@ add_check_summary_table() {
     local html_file="$1"
 
     cat >> "$html_file" << TABLEEOF
+    <div class="page-break"></div>
+
     <h2><span class="section-number">2.</span>점검 항목 및 결과 요약</h2>
 
     <p>다음은 수행된 모든 점검 항목의 결과를 요약한 표입니다. 각 항목별 상세 내용은 후속 섹션에서 다룹니다.</p>
@@ -862,6 +866,8 @@ add_kubernetes_details() {
     local html_file="$1"
 
     cat >> "$html_file" << K8SEOF
+    <div class="page-break"></div>
+
     <h2><span class="section-number">3.</span>Kubernetes Cluster 점검 상세</h2>
 
     <h3><span class="section-number">3.1.</span>클러스터 전반 정보</h3>
@@ -1049,6 +1055,8 @@ add_runway_details() {
     local html_file="$1"
 
     cat >> "$html_file" << RUNWAYEOF
+    <div class="page-break"></div>
+
     <h2><span class="section-number">4.</span>Runway 플랫폼 점검 상세</h2>
 
     <h3><span class="section-number">4.1.</span>플랫폼 구성 정보</h3>
@@ -1111,6 +1119,8 @@ add_issue_list() {
     local html_file="$1"
 
     cat >> "$html_file" << ISSUEEOF
+    <div class="page-break"></div>
+
     <h2><span class="section-number">5.</span>문제 발견 사항 (이슈 리스트)</h2>
 
     <p>점검 결과 발견된 주의 및 위험 항목에 대한 상세 분석입니다.</p>
@@ -1220,6 +1230,8 @@ add_final_conclusion() {
     local html_file="$1"
 
     cat >> "$html_file" << CONCLUSIONEOF
+    <div class="page-break"></div>
+
     <h2><span class="section-number">6.</span>최종 결론</h2>
 
     <div style="border: 1px solid #000; min-height: 150px; padding: 15px; margin: 20px 0; background-color: #fafafa;">

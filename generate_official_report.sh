@@ -189,8 +189,8 @@ collect_cluster_info() {
         # Get describe node output once for both GPU and memory usage
         local describe_output=$(timeout 5 kubectl describe node "$node_name" 2>/dev/null || echo "")
 
-        # Get GPU info
-        local gpu_info="0|0|N/A"
+        # Get GPU info (use comma as internal separator to avoid conflict with pipe delimiter)
+        local gpu_info="0,0,N/A"
         if [[ "$ENABLE_GPU_MONITORING" == "true" ]]; then
             local gpu_capacity=$(echo "$node_info" | jq -r '.status.capacity."nvidia.com/gpu" // "0"' 2>/dev/null || echo "0")
             if [[ "$gpu_capacity" != "0" ]]; then
@@ -204,7 +204,7 @@ collect_cluster_info() {
                 if [[ "$gpu_capacity" != "0" ]]; then
                     gpu_percent=$(echo "scale=0; ($gpu_allocated * 100) / $gpu_capacity" | bc 2>/dev/null || echo "0")
                 fi
-                gpu_info="${gpu_allocated}|${gpu_capacity}|${gpu_percent}"
+                gpu_info="${gpu_allocated},${gpu_capacity},${gpu_percent}"
             fi
         fi
 
@@ -915,7 +915,7 @@ K8SEOF
     local has_gpu=false
     if [[ -n "$NODE_DETAILS" ]]; then
         while IFS='|' read -r name cpu memory max_pods allocatable_mem gpu_info current_pods mem_percent disk_percent; do
-            local gpu_capacity=$(echo "$gpu_info" | cut -d'|' -f2)
+            local gpu_capacity=$(echo "$gpu_info" | cut -d',' -f2)
             if [[ "$gpu_capacity" != "0" && -n "$gpu_capacity" ]]; then
                 has_gpu=true
                 break
@@ -985,10 +985,10 @@ TABLEHEADEREOF
             # Format disk percentage - already has % sign from df output
             [[ -z "$disk_percent" || "$disk_percent" == "N/A" ]] && disk_percent="N/A"
 
-            # Parse GPU info: allocated|capacity|percent
-            local gpu_allocated=$(echo "$gpu_info" | cut -d'|' -f1)
-            local gpu_capacity=$(echo "$gpu_info" | cut -d'|' -f2)
-            local gpu_percent_val=$(echo "$gpu_info" | cut -d'|' -f3)
+            # Parse GPU info: allocated,capacity,percent (comma-separated to avoid pipe conflicts)
+            local gpu_allocated=$(echo "$gpu_info" | cut -d',' -f1)
+            local gpu_capacity=$(echo "$gpu_info" | cut -d',' -f2)
+            local gpu_percent_val=$(echo "$gpu_info" | cut -d',' -f3)
 
             local gpu_display="N/A"
             if [[ "$gpu_capacity" != "0" && -n "$gpu_capacity" ]]; then

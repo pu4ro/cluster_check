@@ -609,32 +609,17 @@ HTMLEOF
     # Add executive summary (starts on new page due to cover-page page-break-after)
     add_executive_summary "$html_file"
 
-    # Add page break
-    echo '<div class="page-break"></div>' >> "$html_file"
-
     # Add check summary table
     add_check_summary_table "$html_file"
-
-    # Add page break
-    echo '<div class="page-break"></div>' >> "$html_file"
 
     # Add Kubernetes cluster details
     add_kubernetes_details "$html_file"
 
-    # Add page break
-    echo '<div class="page-break"></div>' >> "$html_file"
-
     # Add Runway platform details
     add_runway_details "$html_file"
 
-    # Add page break
-    echo '<div class="page-break"></div>' >> "$html_file"
-
     # Add issue list
     add_issue_list "$html_file"
-
-    # Add page break
-    echo '<div class="page-break"></div>' >> "$html_file"
 
     # Add final conclusion
     add_final_conclusion "$html_file"
@@ -670,9 +655,9 @@ add_cover_page() {
             </table>
         </div>
 
-        <div style="margin-top: 20px; border-top: 2px solid #333; padding-top: 15px;">
+        <div style="margin-top: 20px; padding-top: 15px;">
             <h3 style="text-align: center; margin-bottom: 10px; font-size: 13pt;">점검 확인</h3>
-            <table style="width: 80%; margin: 0 auto; border-collapse: collapse;">
+            <table style="width: 60%; margin: 0 auto; border-collapse: collapse;">
                 <thead>
                     <tr>
                         <th style="border: 1px solid #333; padding: 8px; text-align: center; background-color: #f5f5f5; width: 15%;">구분</th>

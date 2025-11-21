@@ -198,17 +198,26 @@ collect_cluster_info() {
             mem_usage_percent=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep -w "memory" | awk '{print $3}' | tr -d '()%' | head -1 || echo "0")
         fi
 
-        # Get disk usage from ephemeral-storage in Allocated resources
+        # Get disk usage from disk-usage-exporter DaemonSet
         local disk_usage_percent="N/A"
-        if [[ -n "$describe_output" ]]; then
-            local ephemeral_usage=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep -w "ephemeral-storage" | awk '{print $3}' | tr -d '()%' | head -1 2>/dev/null || echo "")
 
-            # Check if ephemeral-storage is tracked (not 0%)
+        # Find disk-usage-exporter pod for this node
+        local exporter_pod=$(timeout 5 kubectl get pods -n runway -l app.kubernetes.io/name=disk-usage-exporter --field-selector spec.nodeName="$node_name" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+
+        if [[ -n "$exporter_pod" ]]; then
+            # Get disk usage from df -h / in the exporter pod
+            local df_output=$(timeout 5 kubectl exec -n runway "$exporter_pod" -- df -h / 2>/dev/null | tail -1 || echo "")
+            if [[ -n "$df_output" ]]; then
+                # Extract Use% column (5th field, remove % sign)
+                disk_usage_percent=$(echo "$df_output" | awk '{print $5}' | tr -d '%' || echo "N/A")
+            fi
+        fi
+
+        # Fallback: If disk-usage-exporter not available, check ephemeral-storage
+        if [[ "$disk_usage_percent" == "N/A" && -n "$describe_output" ]]; then
+            local ephemeral_usage=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep -w "ephemeral-storage" | awk '{print $3}' | tr -d '()%' | head -1 2>/dev/null || echo "")
             if [[ -n "$ephemeral_usage" && "$ephemeral_usage" =~ ^[0-9]+$ && "$ephemeral_usage" -gt 0 ]]; then
                 disk_usage_percent="$ephemeral_usage"
-            else
-                # ephemeral-storage not tracked, mark as not monitored
-                disk_usage_percent="미추적"
             fi
         fi
 

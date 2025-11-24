@@ -799,9 +799,6 @@ add_executive_summary() {
     <h3><span class="section-number">1.3.</span>핵심 결론</h3>
     <div class="summary-box">
         <div class="summary-item">
-            <span class="summary-label">총 점검 항목:</span>${TOTAL_CHECKS}개
-        </div>
-        <div class="summary-item">
             <span class="summary-label">정상:</span>${SUCCESS_COUNT}개
         </div>
         <div class="summary-item">
@@ -818,28 +815,7 @@ add_executive_summary() {
         </div>
     </div>
 
-    <h3><span class="section-number">1.4.</span>주요 리스크 및 개선 권고 요약</h3>
 SUMMARYEOF
-
-    # Add risk summary based on check results
-    if [[ $FAILED_COUNT -gt 0 ]]; then
-        cat >> "$html_file" << RISKEOF
-    <ul>
-        <li><strong>고위험:</strong> ${FAILED_COUNT}개 항목에서 심각한 문제가 발견되었습니다. 즉시 조치가 필요합니다.</li>
-RISKEOF
-    fi
-
-    if [[ $WARNING_COUNT -gt 0 ]]; then
-        cat >> "$html_file" << RISKEOF
-        <li><strong>중위험:</strong> ${WARNING_COUNT}개 항목에서 주의가 필요한 상태가 확인되었습니다. 모니터링 및 개선 계획 수립이 권장됩니다.</li>
-RISKEOF
-    fi
-
-    cat >> "$html_file" << RISKEOF
-        <li><strong>지속적 모니터링:</strong> 정상 항목도 주기적인 점검을 통해 안정성을 유지해야 합니다.</li>
-        <li><strong>용량 계획:</strong> 리소스 사용률 추이를 분석하여 중장기 확장 계획을 수립해야 합니다.</li>
-    </ul>
-RISKEOF
 }
 
 # Add check summary table
@@ -855,11 +831,9 @@ add_check_summary_table() {
         <thead>
             <tr>
                 <th style="width: 5%;">No.</th>
-                <th style="width: 20%;">점검 항목</th>
-                <th style="width: 25%;">점검 기준</th>
-                <th style="width: 10%;">점검 결과</th>
-                <th style="width: 30%;">요약 설명</th>
-                <th style="width: 10%;">리스크 등급</th>
+                <th style="width: 25%;">점검 항목</th>
+                <th style="width: 30%;">점검 기준</th>
+                <th style="width: 40%;">요약 설명</th>
             </tr>
         </thead>
         <tbody>
@@ -883,24 +857,7 @@ TABLEEOF
         local status_display=""
         local risk_level=""
 
-        case "$status" in
-            "SUCCESS")
-                status_display='<span class="status-success">정상</span>'
-                risk_level='<span class="risk-low">하</span>'
-                ;;
-            "WARNING")
-                status_display='<span class="status-warning">주의</span>'
-                risk_level='<span class="risk-medium">중</span>'
-                ;;
-            "FAILED")
-                status_display='<span class="status-failed">위험</span>'
-                risk_level='<span class="risk-high">상</span>'
-                ;;
-            *)
-                status_display='<span>미확인</span>'
-                risk_level='<span class="risk-medium">중</span>'
-                ;;
-        esac
+        # Status is still parsed but not displayed in table
 
         # Truncate details for summary table
         local summary_details=$(echo "$details" | cut -c1-100)
@@ -913,9 +870,7 @@ TABLEEOF
                 <td style="text-align: center;">${check_index}</td>
                 <td><strong>${check_title}</strong></td>
                 <td>${check_criterion}</td>
-                <td style="text-align: center;">${status_display}</td>
                 <td>${summary_details}</td>
-                <td style="text-align: center;">${risk_level}</td>
             </tr>
 ROWEOF
         ((check_index++))
@@ -1307,18 +1262,12 @@ add_final_conclusion() {
         <thead>
             <tr>
                 <th style="width: 15%;">구분</th>
-                <th style="width: 25%;">소속</th>
-                <th style="width: 20%;">성명</th>
-                <th style="width: 40%;">서명</th>
+                <th style="width: 30%;">소속</th>
+                <th style="width: 25%;">성명</th>
+                <th style="width: 30%;">서명</th>
             </tr>
         </thead>
         <tbody>
-            <tr>
-                <td style="text-align: center; font-weight: bold;">작성자</td>
-                <td>${INSPECTOR_DEPT:-&nbsp;}</td>
-                <td>${INSPECTOR_NAME:-&nbsp;}</td>
-                <td>&nbsp;</td>
-            </tr>
             <tr>
                 <td style="text-align: center; font-weight: bold;">담당자</td>
                 <td>${MANAGER_DEPT:-&nbsp;}</td>

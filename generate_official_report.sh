@@ -796,25 +796,6 @@ add_executive_summary() {
         <li>리소스 사용률 및 용량 계획</li>
     </ul>
 
-    <h3><span class="section-number">1.3.</span>핵심 결론</h3>
-    <div class="summary-box">
-        <div class="summary-item">
-            <span class="summary-label">정상:</span>${SUCCESS_COUNT}개
-        </div>
-        <div class="summary-item">
-            <span class="summary-label">주의:</span>${WARNING_COUNT}개
-        </div>
-        <div class="summary-item">
-            <span class="summary-label">위험:</span>${FAILED_COUNT}개
-        </div>
-        <div class="summary-item">
-            <span class="summary-label">정상률:</span>${SUCCESS_RATE}%
-        </div>
-        <div class="summary-item">
-            <span class="summary-label">종합 평가:</span>${assessment}
-        </div>
-    </div>
-
 SUMMARYEOF
 }
 

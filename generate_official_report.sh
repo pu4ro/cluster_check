@@ -765,15 +765,58 @@ COVEREOF
 add_executive_summary() {
     local html_file="$1"
 
-    # Determine overall assessment
-    local assessment=""
-    if [[ "$OVERALL_STATUS" == "SUCCESS" ]]; then
-        assessment="전체적으로 클러스터 상태가 양호합니다."
-    elif [[ "$OVERALL_STATUS" == "WARNING" ]]; then
-        assessment="일부 주의가 필요한 항목이 발견되었습니다."
-    else
-        assessment="심각한 문제가 발견되어 즉시 조치가 필요합니다."
+    # Use .env variables or calculate from JSON data
+    local system_status="${EXECUTIVE_SUMMARY_STATUS:-}"
+    if [[ -z "$system_status" ]]; then
+        # Auto-determine if not provided in .env
+        if [[ "$OVERALL_STATUS" == "SUCCESS" ]]; then
+            system_status="전체 시스템은 정상 운영 중이며 주요 서비스 장애 없음"
+        elif [[ "$OVERALL_STATUS" == "WARNING" ]]; then
+            system_status="전체 시스템은 운영 중이나, 일부 주의가 필요한 항목이 발견됨"
+        else
+            system_status="심각한 문제가 발견되어 즉시 조치가 필요한 상태"
+        fi
     fi
+
+    # Calculate severity breakdown from JSON or use .env values
+    local critical_count=0
+    local major_count=0
+    local minor_count=0
+
+    # Count issues by severity (from .env check severity settings)
+    local check_names=("nodes" "pods" "deployments" "services" "storage" "ingress" "url_check" "rook_ceph" "harbor_disk" "minio_disk")
+    local check_severity_vars=("CHECK_NODES_SEVERITY" "CHECK_PODS_SEVERITY" "CHECK_DEPLOYMENTS_SEVERITY" "CHECK_SERVICES_SEVERITY" "CHECK_STORAGE_SEVERITY" "CHECK_INGRESS_SEVERITY" "CHECK_URL_CHECK_SEVERITY" "CHECK_ROOK_CEPH_SEVERITY" "CHECK_HARBOR_DISK_SEVERITY" "CHECK_MINIO_DISK_SEVERITY")
+
+    for i in "${!check_names[@]}"; do
+        local check_name="${check_names[$i]}"
+        local status=$(jq -r ".check_results.${check_name}.status // \"UNKNOWN\"" "$JSON_INPUT")
+
+        # Only count WARNING or FAILED checks
+        if [[ "$status" == "WARNING" || "$status" == "FAILED" ]]; then
+            local severity_var="${check_severity_vars[$i]}"
+            local severity="${!severity_var:-Major}"
+
+            case "$severity" in
+                "Critical")
+                    ((critical_count++))
+                    ;;
+                "Major")
+                    ((major_count++))
+                    ;;
+                "Minor")
+                    ((minor_count++))
+                    ;;
+            esac
+        fi
+    done
+
+    local total_issues=$((critical_count + major_count + minor_count))
+
+    local issue_count="${EXECUTIVE_SUMMARY_ISSUE_COUNT:-총 ${total_issues}건의 이슈 발견}"
+    local severity_breakdown="${EXECUTIVE_SUMMARY_SEVERITY_BREAKDOWN:-Critical ${critical_count}건, Major ${major_count}건, Minor ${minor_count}건}"
+
+    local key_risk_1="${EXECUTIVE_SUMMARY_KEY_RISK_1:-}"
+    local key_risk_2="${EXECUTIVE_SUMMARY_KEY_RISK_2:-}"
 
     cat >> "$html_file" << SUMMARYEOF
     <h2><span class="section-number">1.</span>보고서 요약 (Executive Summary)</h2>
@@ -796,7 +839,44 @@ add_executive_summary() {
         <li>리소스 사용률 및 용량 계획</li>
     </ul>
 
+    <h3><span class="section-number">1.3.</span>전반적인 시스템 상태</h3>
+    <div class="summary-box">
+        <div class="summary-item">
+            <span class="summary-label">시스템 상태:</span> <strong>${system_status}</strong>
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">이슈 발견:</span> ${issue_count}
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">심각도 분류:</span> ${severity_breakdown}
+        </div>
+    </div>
+
 SUMMARYEOF
+
+    # Add key risk factors if provided
+    if [[ -n "$key_risk_1" || -n "$key_risk_2" ]]; then
+        cat >> "$html_file" << RISKEOF
+    <h3><span class="section-number">1.4.</span>주요 위험 요인</h3>
+    <div class="notice-box">
+        <div class="notice-title">중요 주의 사항</div>
+        <ul>
+RISKEOF
+
+        if [[ -n "$key_risk_1" ]]; then
+            echo "            <li><strong>${key_risk_1}</strong></li>" >> "$html_file"
+        fi
+
+        if [[ -n "$key_risk_2" ]]; then
+            echo "            <li><strong>${key_risk_2}</strong></li>" >> "$html_file"
+        fi
+
+        cat >> "$html_file" << RISKENDEOF
+        </ul>
+    </div>
+
+RISKENDEOF
+    fi
 }
 
 # Add check summary table
@@ -812,9 +892,11 @@ add_check_summary_table() {
         <thead>
             <tr>
                 <th style="width: 5%;">No.</th>
-                <th style="width: 25%;">점검 항목</th>
-                <th style="width: 30%;">점검 기준</th>
-                <th style="width: 40%;">요약 설명</th>
+                <th style="width: 20%;">점검 항목</th>
+                <th style="width: 20%;">점검 기준</th>
+                <th style="width: 10%;">중요도</th>
+                <th style="width: 12%;">조치결과</th>
+                <th style="width: 33%;">요약 설명</th>
             </tr>
         </thead>
         <tbody>
@@ -825,6 +907,8 @@ TABLEEOF
     local check_names=("nodes" "pods" "deployments" "services" "storage" "ingress" "url_check" "rook_ceph" "harbor_disk" "minio_disk")
     local check_titles=("노드 상태" "파드 상태" "디플로이먼트 상태" "서비스 엔드포인트" "스토리지 (PV/PVC)" "Ingress 백엔드" "URL 연결성" "Rook-Ceph 클러스터" "Harbor 디스크 사용량" "Minio 디스크 사용량")
     local check_criteria=("모든 노드가 Ready 상태" "모든 파드가 Running 상태" "모든 디플로이먼트가 정상 복제" "모든 서비스에 엔드포인트 존재" "모든 PVC가 Bound 상태" "모든 Ingress가 백엔드 연결" "외부 URL 접근 가능" "Ceph HEALTH_OK 상태" "디스크 사용률 80% 미만" "디스크 사용률 80% 미만")
+    local check_severity_vars=("CHECK_NODES_SEVERITY" "CHECK_PODS_SEVERITY" "CHECK_DEPLOYMENTS_SEVERITY" "CHECK_SERVICES_SEVERITY" "CHECK_STORAGE_SEVERITY" "CHECK_INGRESS_SEVERITY" "CHECK_URL_CHECK_SEVERITY" "CHECK_ROOK_CEPH_SEVERITY" "CHECK_HARBOR_DISK_SEVERITY" "CHECK_MINIO_DISK_SEVERITY")
+    local check_status_vars=("CHECK_NODES_STATUS" "CHECK_PODS_STATUS" "CHECK_DEPLOYMENTS_STATUS" "CHECK_SERVICES_STATUS" "CHECK_STORAGE_STATUS" "CHECK_INGRESS_STATUS" "CHECK_URL_CHECK_STATUS" "CHECK_ROOK_CEPH_STATUS" "CHECK_HARBOR_DISK_STATUS" "CHECK_MINIO_DISK_STATUS")
 
     for i in "${!check_names[@]}"; do
         local check_name="${check_names[$i]}"
@@ -834,15 +918,32 @@ TABLEEOF
         local status=$(jq -r ".check_results.${check_name}.status // \"UNKNOWN\"" "$JSON_INPUT")
         local details=$(jq -r ".check_results.${check_name}.details // \"정보 없음\"" "$JSON_INPUT" | sed 's/"/\&quot;/g')
 
-        # Determine status display and risk level
-        local status_display=""
-        local risk_level=""
+        # Get severity and action status from .env variables
+        local severity_var="${check_severity_vars[$i]}"
+        local status_var="${check_status_vars[$i]}"
+        local severity="${!severity_var:-Major}"
+        local action_status="${!status_var:-N/A}"
 
-        # Status is still parsed but not displayed in table
+        # Apply styling based on severity
+        local severity_display=""
+        case "$severity" in
+            "Critical")
+                severity_display="<span class=\"risk-high\">Critical</span>"
+                ;;
+            "Major")
+                severity_display="<span class=\"risk-medium\">Major</span>"
+                ;;
+            "Minor")
+                severity_display="<span class=\"risk-low\">Minor</span>"
+                ;;
+            *)
+                severity_display="$severity"
+                ;;
+        esac
 
         # Truncate details for summary table
-        local summary_details=$(echo "$details" | cut -c1-100)
-        if [[ ${#details} -gt 100 ]]; then
+        local summary_details=$(echo "$details" | cut -c1-60)
+        if [[ ${#details} -gt 60 ]]; then
             summary_details="${summary_details}..."
         fi
 
@@ -851,6 +952,8 @@ TABLEEOF
                 <td style="text-align: center;">${check_index}</td>
                 <td><strong>${check_title}</strong></td>
                 <td>${check_criterion}</td>
+                <td style="text-align: center;">${severity_display}</td>
+                <td style="text-align: center;">${action_status}</td>
                 <td>${summary_details}</td>
             </tr>
 ROWEOF
@@ -1124,11 +1227,13 @@ add_issue_list() {
     <table>
         <thead>
             <tr>
-                <th style="width: 8%;">이슈 ID</th>
-                <th style="width: 15%;">항목</th>
-                <th style="width: 30%;">현상</th>
-                <th style="width: 20%;">영향도</th>
-                <th style="width: 27%;">개선 방안</th>
+                <th style="width: 6%;">이슈 ID</th>
+                <th style="width: 12%;">항목</th>
+                <th style="width: 18%;">현상</th>
+                <th style="width: 10%;">조치 상태</th>
+                <th style="width: 18%;">발생 원인</th>
+                <th style="width: 13%;">영향도</th>
+                <th style="width: 23%;">재발 방지 대책</th>
             </tr>
         </thead>
         <tbody>
@@ -1138,6 +1243,9 @@ ISSUEEOF
     local issue_id=1
     local check_names=("nodes" "pods" "deployments" "services" "storage" "ingress" "url_check" "rook_ceph" "harbor_disk" "minio_disk")
     local check_titles=("노드 상태" "파드 상태" "디플로이먼트 상태" "서비스 엔드포인트" "스토리지 (PV/PVC)" "Ingress 백엔드" "URL 연결성" "Rook-Ceph 클러스터" "Harbor 디스크 사용량" "Minio 디스크 사용량")
+    local issue_action_status_vars=("ISSUE_NODES_ACTION_STATUS" "ISSUE_PODS_ACTION_STATUS" "ISSUE_DEPLOYMENTS_ACTION_STATUS" "ISSUE_SERVICES_ACTION_STATUS" "ISSUE_STORAGE_ACTION_STATUS" "ISSUE_INGRESS_ACTION_STATUS" "ISSUE_URL_CHECK_ACTION_STATUS" "ISSUE_ROOK_CEPH_ACTION_STATUS" "ISSUE_HARBOR_DISK_ACTION_STATUS" "ISSUE_MINIO_DISK_ACTION_STATUS")
+    local issue_root_cause_vars=("ISSUE_NODES_ROOT_CAUSE" "ISSUE_PODS_ROOT_CAUSE" "ISSUE_DEPLOYMENTS_ROOT_CAUSE" "ISSUE_SERVICES_ROOT_CAUSE" "ISSUE_STORAGE_ROOT_CAUSE" "ISSUE_INGRESS_ROOT_CAUSE" "ISSUE_URL_CHECK_ROOT_CAUSE" "ISSUE_ROOK_CEPH_ROOT_CAUSE" "ISSUE_HARBOR_DISK_ROOT_CAUSE" "ISSUE_MINIO_DISK_ROOT_CAUSE")
+    local issue_prevention_vars=("ISSUE_NODES_PREVENTION" "ISSUE_PODS_PREVENTION" "ISSUE_DEPLOYMENTS_PREVENTION" "ISSUE_SERVICES_PREVENTION" "ISSUE_STORAGE_PREVENTION" "ISSUE_INGRESS_PREVENTION" "ISSUE_URL_CHECK_PREVENTION" "ISSUE_ROOK_CEPH_PREVENTION" "ISSUE_HARBOR_DISK_PREVENTION" "ISSUE_MINIO_DISK_PREVENTION")
 
     local has_issues=false
 
@@ -1151,46 +1259,115 @@ ISSUEEOF
         if [[ "$status" == "WARNING" || "$status" == "FAILED" ]]; then
             has_issues=true
 
-            local impact=""
-            local solution=""
+            # Get action status, root cause, and prevention from .env
+            local action_status_var="${issue_action_status_vars[$i]}"
+            local root_cause_var="${issue_root_cause_vars[$i]}"
+            local prevention_var="${issue_prevention_vars[$i]}"
 
-            # Determine impact and solution based on check type
+            local action_status="${!action_status_var:-}"
+            local root_cause="${!root_cause_var:-}"
+            local prevention="${!prevention_var:-}"
+
+            # Default impact if not overridden
+            local impact=""
+
+            # Determine default values if not provided in .env
+            if [[ -z "$action_status" ]]; then
+                action_status="대기"
+            fi
+
+            if [[ -z "$root_cause" ]]; then
+                case "$check_name" in
+                    "nodes")
+                        root_cause="kubelet 서비스 장애, 네트워크 불안정"
+                        ;;
+                    "pods")
+                        root_cause="리소스 부족, 이미지 pull 실패"
+                        ;;
+                    "deployments")
+                        root_cause="헬스체크 실패, 리소스 제한 초과"
+                        ;;
+                    "services")
+                        root_cause="파드 셀렉터 불일치, 파드 Not Ready 상태"
+                        ;;
+                    "storage")
+                        root_cause="프로비저너 오류, PV 용량 부족"
+                        ;;
+                    "ingress")
+                        root_cause="Ingress Controller 호환성 문제"
+                        ;;
+                    "url_check")
+                        root_cause="외부 DNS 해석 실패, 방화벽 차단"
+                        ;;
+                    "rook_ceph")
+                        root_cause="OSD 디스크 장애, Mon 쿼럼 불일치"
+                        ;;
+                    "harbor_disk"|"minio_disk")
+                        root_cause="이미지/데이터 정리 정책 미적용"
+                        ;;
+                esac
+            fi
+
+            if [[ -z "$prevention" ]]; then
+                case "$check_name" in
+                    "nodes")
+                        prevention="노드 상태 모니터링 강화, kubelet 자동 재시작 스크립트 적용"
+                        ;;
+                    "pods")
+                        prevention="리소스 쿼터 검토, Pod Disruption Budget 설정"
+                        ;;
+                    "deployments")
+                        prevention="헬스체크 파라미터 조정, 리소스 요청/제한 값 재설정"
+                        ;;
+                    "services")
+                        prevention="셀렉터 자동 검증 스크립트 도입, 파드 상태 지속 모니터링"
+                        ;;
+                    "storage")
+                        prevention="동적 프로비저닝 설정 검토, 스토리지 용량 확장"
+                        ;;
+                    "ingress")
+                        prevention="Ingress Controller 업데이트 정책 수립, 인증서 만료 자동 알림"
+                        ;;
+                    "url_check")
+                        prevention="DNS 서버 이중화, 방화벽 규칙 정기 검토"
+                        ;;
+                    "rook_ceph")
+                        prevention="Ceph OSD 상태 지속 모니터링, 디스크 교체 정책 수립"
+                        ;;
+                    "harbor_disk"|"minio_disk")
+                        prevention="이미지/데이터 라이프사이클 정책 설정, 정기 정리 작업 자동화"
+                        ;;
+                esac
+            fi
+
+            # Set impact
             case "$check_name" in
                 "nodes")
                     impact="클러스터 전체 안정성에 영향"
-                    solution="노드 상태 점검 및 재시작, kubelet 로그 확인"
                     ;;
                 "pods")
                     impact="애플리케이션 서비스 장애 가능성"
-                    solution="파드 로그 확인, 리소스 부족 여부 점검"
                     ;;
                 "deployments")
                     impact="서비스 가용성 저하"
-                    solution="디플로이먼트 설정 검토, 이미지 및 리소스 확인"
                     ;;
                 "services")
                     impact="네트워크 연결 불가"
-                    solution="파드 셀렉터 확인, 파드 상태 점검"
                     ;;
                 "storage")
                     impact="데이터 저장 불가"
-                    solution="PV/PVC 바인딩 상태 확인, 스토리지 클래스 검토"
                     ;;
                 "ingress")
                     impact="외부 접근 불가"
-                    solution="Ingress 컨트롤러 상태 확인, 백엔드 서비스 점검"
                     ;;
                 "url_check")
                     impact="외부 연결성 문제"
-                    solution="네트워크 정책, DNS 설정, 방화벽 규칙 확인"
                     ;;
                 "rook_ceph")
                     impact="스토리지 클러스터 안정성 저하"
-                    solution="Ceph 클러스터 상태 점검, OSD 및 Mon 상태 확인"
                     ;;
                 "harbor_disk"|"minio_disk")
                     impact="디스크 공간 부족으로 서비스 중단 가능"
-                    solution="디스크 용량 확장, 불필요한 데이터 정리"
                     ;;
             esac
 
@@ -1199,8 +1376,10 @@ ISSUEEOF
                 <td style="text-align: center;">ISS-$(printf "%03d" $issue_id)</td>
                 <td><strong>${check_title}</strong></td>
                 <td>${details}</td>
+                <td style="text-align: center;"><strong>${action_status}</strong></td>
+                <td>${root_cause}</td>
                 <td>${impact}</td>
-                <td>${solution}</td>
+                <td>${prevention}</td>
             </tr>
 ISSUEROWEOF
             ((issue_id++))
@@ -1210,7 +1389,7 @@ ISSUEROWEOF
     if [[ "$has_issues" == "false" ]]; then
         cat >> "$html_file" << NOISSUEEOF
             <tr>
-                <td colspan="5" style="text-align: center;">발견된 주요 이슈가 없습니다. 모든 항목이 정상 상태입니다.</td>
+                <td colspan="7" style="text-align: center;">발견된 주요 이슈가 없습니다. 모든 항목이 정상 상태입니다.</td>
             </tr>
 NOISSUEEOF
     fi
@@ -1225,9 +1404,26 @@ ISSUEENDEOF
 add_final_conclusion() {
     local html_file="$1"
 
+    local final_conclusion="${FINAL_CONCLUSION:-}"
+
     cat >> "$html_file" << CONCLUSIONEOF
     <h2 style="page-break-before: always;"><span class="section-number">6.</span>최종 결론</h2>
 
+CONCLUSIONEOF
+
+    if [[ -n "$final_conclusion" ]]; then
+        # If FINAL_CONCLUSION is provided in .env, display it
+        cat >> "$html_file" << CONCLUSIONWITHCONTENTEOF
+    <div style="border: 1px solid #000; min-height: 150px; padding: 15px; margin: 20px 0; background-color: #fafafa;">
+        <p style="text-align: justify; line-height: 1.8;">
+            ${final_conclusion}
+        </p>
+    </div>
+
+CONCLUSIONWITHCONTENTEOF
+    else
+        # If not provided, show empty area for manual entry
+        cat >> "$html_file" << CONCLUSIONEMPTYEOF
     <div style="border: 1px solid #000; min-height: 150px; padding: 15px; margin: 20px 0; background-color: #fafafa;">
         <p style="color: #666; font-size: 10pt; margin-bottom: 10px;">
             ※ 담당자가 직접 작성하는 영역입니다.
@@ -1237,6 +1433,10 @@ add_final_conclusion() {
         </div>
     </div>
 
+CONCLUSIONEMPTYEOF
+    fi
+
+    cat >> "$html_file" << SIGNATUREEOF
     <h3 style="margin-top: 30px;"><span class="section-number">6.1.</span>점검 확인</h3>
 
     <table>
@@ -1258,7 +1458,7 @@ add_final_conclusion() {
         </tbody>
     </table>
 
-CONCLUSIONEOF
+SIGNATUREEOF
 }
 
 # Main execution

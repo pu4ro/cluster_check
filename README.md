@@ -83,12 +83,18 @@ DEBUG=true ./k8s_health_check.sh
 
 ### 📄 공식 보고서 생성 (공공기관용)
 
-공공기관용 공식 기술 점검 보고서를 생성합니다. A4 PDF 인쇄 최적화 및 흑백 출력을 지원합니다.
+공공기관용 공식 기술 점검 보고서를 생성합니다. A4 PDF 인쇄 최적화 및 흑백 출력을 지원하며, **모든 보고서 내용을 .env 파일로 제어 가능**합니다.
 
 ```bash
-# .env 파일 설정 (선택사항)
+# .env 파일 설정 (필수 - 보고서 커스터마이징)
 cp .env.example .env
-# .env 파일을 편집하여 기관명, Runway 버전 등 설정
+# .env 파일을 편집하여 보고서 내용 설정
+# - 기관명, 작성자, 담당자 정보
+# - Executive Summary (시스템 상태, 이슈 개수, 주요 위험요인)
+# - 점검 항목별 중요도 (Critical/Major/Minor)
+# - 점검 항목별 조치결과 상태 (Completed/In Progress/Planned/N/A)
+# - 이슈별 조치 상태, 발생 원인, 재발 방지 대책
+# - 최종 결론 내용
 
 # 자동으로 클러스터 점검 및 보고서 생성
 ./generate_official_report.sh
@@ -96,7 +102,7 @@ cp .env.example .env
 # 기존 JSON 파일로 보고서 생성
 ./generate_official_report.sh --json reports/k8s_health_report_20250120_120000.json
 
-# 기관명 및 작성자 지정 (명령줄 옵션)
+# 기관명 및 작성자 지정 (명령줄 옵션 - .env 파일보다 우선)
 ./generate_official_report.sh --org "한국수자원공사" --author "김철수"
 
 # 문서 버전 지정
@@ -107,25 +113,67 @@ wkhtmltopdf reports/official_report_*.html reports/official_report.pdf
 ```
 
 **보고서 구성:**
-1. 표지 (기관명, 작성자, 작성일, 문서 버전)
-2. 보고서 요약 (Executive Summary)
-3. 점검 항목 및 결과 요약표
-4. Kubernetes Cluster 점검 상세 (노드 상세 정보에 GPU 포함)
-5. Runway 플랫폼 점검 상세
-6. 문제 발견 사항 (이슈 리스트)
-7. 최종 결론 (담당자 직접 작성 영역)
-8. 검토 및 승인 (서명 및 날인 테이블)
+1. **표지**: 기관명, 작성자, 작성일, 문서 버전
+2. **보고서 요약 (Executive Summary)**
+   - 점검 목적 및 범위
+   - 전반적인 시스템 상태 (정상/주의/위험)
+   - 이슈 개수 및 심각도 분류 (Critical/Major/Minor)
+   - 주요 위험 요인 1~2개 강조
+3. **점검 항목 및 결과 요약표**
+   - 10개 점검 항목
+   - 각 항목별 중요도 (Critical/Major/Minor)
+   - 조치결과 상태 (Completed/In Progress/Planned/N/A)
+4. **Kubernetes Cluster 점검 상세**
+   - 클러스터 전반 정보 (버전, CNI, GPU Operator 등)
+   - 노드 상세 정보 (CPU, 메모리, Pod, GPU, 디스크 사용률)
+5. **Runway 플랫폼 점검 상세**
+6. **문제 발견 사항 (이슈 리스트)**
+   - 이슈 ID, 항목, 현상
+   - **조치 상태** (완료/미완료/대기/원인 분석 중)
+   - **발생 원인** (근본 원인 분석)
+   - 영향도
+   - **재발 방지 대책** (향후 계획)
+7. **최종 결론**
+   - .env 파일에서 설정 가능한 결론 내용
+   - 담당자 직접 작성 영역 (FINAL_CONCLUSION 미설정 시)
+8. **점검 확인**: 서명 및 날인 테이블
 
-**특징:**
+**주요 특징:**
+- ✅ **완전한 .env 제어**: 모든 보고서 내용을 .env 파일로 커스터마이징
+- ✅ **Executive Summary**: 시스템 상태 요약, 이슈 개수, 심각도 분류, 주요 위험요인
+- ✅ **중요도 (Severity)**: Critical/Major/Minor 3단계 분류
+- ✅ **조치결과 (Status)**: Completed/In Progress/Planned/N/A 상태 추적
+- ✅ **근본 원인 분석**: 이슈별 발생 원인 문서화
+- ✅ **재발 방지 대책**: 향후 계획 및 자동화 방안 제시
+- ✅ **커스터마이징 가능한 결론**: FINAL_CONCLUSION 변수로 결론 작성
 - ✅ A4 PDF 인쇄 최적화 (페이지 자동 분할)
 - ✅ 흑백 출력 최적화 (회색조 기반 구분)
 - ✅ 공공기관 보고서 형식 (격식있는 표현)
-- ✅ 리스크 등급 자동 평가 (상/중/하)
-- ✅ 개선 방안 자동 제안
-- ✅ .env 파일로 모든 설정 가능 (Runway 버전, 기관명 등)
 - ✅ GPU 노드 자동 감지 및 GPU 개수 표시
 - ✅ 메모리 단위 GB로 표시
-- ✅ 담당자 직접 결론 작성 및 서명/날인 영역 제공
+- ✅ 스마트 기본값: .env 미설정 시 자동으로 적절한 기본값 생성
+
+**`.env` 파일 설정 예시:**
+```bash
+# Executive Summary
+EXECUTIVE_SUMMARY_STATUS="전체 시스템은 정상 운영 중이며 주요 서비스 장애 없음"
+EXECUTIVE_SUMMARY_ISSUE_COUNT="총 5건의 이슈 발견"
+EXECUTIVE_SUMMARY_SEVERITY_BREAKDOWN="Critical 1건, Major 2건, Minor 2건"
+EXECUTIVE_SUMMARY_KEY_RISK_1="Harbor 레지스트리 디스크 사용률 85% 도달, 임계치 근접"
+EXECUTIVE_SUMMARY_KEY_RISK_2="일부 노드에서 메모리 사용률 80% 초과, 용량 확장 검토 필요"
+
+# 점검 항목 설정 (예시: Harbor 디스크)
+CHECK_HARBOR_DISK_SEVERITY="Major"
+CHECK_HARBOR_DISK_STATUS="In Progress"
+
+# 이슈 상세 설정 (예시: Harbor 디스크)
+ISSUE_HARBOR_DISK_ACTION_STATUS="미완료"
+ISSUE_HARBOR_DISK_ROOT_CAUSE="이미지 정리 정책 미적용, 불필요한 태그 누적"
+ISSUE_HARBOR_DISK_PREVENTION="이미지 라이프사이클 정책 설정, 정기 이미지 정리 작업 자동화, 디스크 용량 확장"
+
+# 최종 결론
+FINAL_CONCLUSION="본 점검 결과 전반적인 시스템 운영 상태는 양호하나, Harbor 디스크 사용률 증가 추세에 대한 모니터링 강화가 필요합니다."
+```
 
 ## ⚙️ 설정
 
@@ -259,10 +307,20 @@ MAX_PARALLEL_JOBS=10
 
 ## 🔄 업그레이드 내역
 
-### v3.0.0 (최신 - 스토리지 통합 모니터링)
+### v3.1.0 (최신 - 공식 보고서 고도화)
+- ✅ **Executive Summary**: 시스템 상태 요약, 이슈 개수, 심각도 분류, 주요 위험요인
+- ✅ **중요도 분류**: Critical/Major/Minor 3단계 Severity 레벨 추가
+- ✅ **조치결과 추적**: Completed/In Progress/Planned/N/A 상태 관리
+- ✅ **근본 원인 분석**: 이슈별 발생 원인 문서화
+- ✅ **재발 방지 대책**: 향후 계획 및 자동화 방안 제시
+- ✅ **완전한 .env 제어**: 모든 보고서 내용을 .env 파일로 커스터마이징 가능
+- ✅ **커스터마이징 가능한 결론**: FINAL_CONCLUSION 변수로 최종 결론 작성
+- ✅ **스마트 기본값**: .env 미설정 시 자동으로 적절한 기본값 생성
+
+### v3.0.0 (스토리지 통합 모니터링)
 - ✅ **Rook-Ceph 통합**: 실제 Ceph 클러스터 상태 모니터링
 - ✅ **Harbor 디스크 모니터링**: 컨테이너 레지스트리 스토리지 추적
-- ✅ **Minio 디스크 모니터링**: 오브젝트 스토리지 용량 모니터링  
+- ✅ **Minio 디스크 모니터링**: 오브젝트 스토리지 용량 모니터링
 - ✅ **Chart.js 대시보드**: 도넛 차트와 진행률 바 시각화
 - ✅ **스토리지 섹션**: 전용 스토리지 모니터링 UI 추가
 - ✅ **서비스 예외 처리**: kserve/modelmesh-serving 자동 제외
@@ -328,4 +386,4 @@ MIT License
 
 **Made with ❤️ for Kubernetes Operations**
 
-**Version: 3.0.0** | **Last Updated: 2025-08-21**
+**Version: 3.1.0** | **Last Updated: 2025-01-26**

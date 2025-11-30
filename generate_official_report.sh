@@ -1461,6 +1461,32 @@ CONCLUSIONEMPTYEOF
 SIGNATUREEOF
 }
 
+generate_official_json_report() {
+    local json_file="${OUTPUT_DIR}/official_report_${TIMESTAMP}.json"
+
+    if [[ -z "$JSON_INPUT" || ! -f "$JSON_INPUT" ]]; then
+        log_error "JSON 입력 파일을 찾을 수 없습니다: $JSON_INPUT"
+        exit 1
+    fi
+
+    # Wrap the source JSON with report metadata for traceability
+    if jq --version >/dev/null 2>&1; then
+        jq \
+            --arg org "${ORGANIZATION:-}" \
+            --arg author "${AUTHOR_NAME:-}" \
+            --arg version "${REPORT_VERSION:-}" \
+            --arg date "${REPORT_DATE:-}" \
+            --arg source "$(basename "$JSON_INPUT")" \
+            --arg generated_at "$(date +%Y-%m-%dT%H:%M:%S%z)" \
+            '. + {official_report: {organization: $org, author: $author, report_version: $version, report_date: $date, source_json: $source, generated_at: $generated_at}}' \
+            "$JSON_INPUT" > "$json_file"
+    else
+        cp "$JSON_INPUT" "$json_file"
+    fi
+
+    echo "$json_file"
+}
+
 # Main execution
 main() {
     echo "========================================"
@@ -1517,9 +1543,11 @@ main() {
 
     # Generate HTML report
     html_file=$(generate_html_report)
+    json_file=$(generate_official_json_report)
 
     echo
     log_success "공식 보고서가 생성되었습니다: $html_file"
+    log_success "공식 JSON 보고서가 생성되었습니다: $json_file"
     echo
     echo "========================================"
     echo "다음 명령어로 PDF로 변환할 수 있습니다:"

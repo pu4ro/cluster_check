@@ -27,6 +27,9 @@ ORGANIZATION="${ORGANIZATION:-}"
 REPORT_DATE="${REPORT_DATE:-$(date +%Y-%m-%d)}"
 KUBECTL_TIMEOUT="${KUBECTL_TIMEOUT:-5}"
 ENABLE_GPU_MONITORING="${ENABLE_GPU_MONITORING:-true}"
+ENABLE_PDF_CONVERT="${ENABLE_PDF_CONVERT:-false}"
+PDF_BUILD_MODE="${PDF_BUILD_MODE:-online}"        # online|offline
+PDF_DOCKER_IMAGE="${PDF_DOCKER_IMAGE:-k8s-report-pdf:latest}"
 
 # Inspection confirmation info (for cover page)
 INSPECTOR_NAME="${INSPECTOR_NAME:-}"
@@ -178,6 +181,54 @@ ensure_json_input() {
     # 3) 없으면 새 점검 실행
     log_info "기존 점검 JSON을 찾지 못했습니다. 새 점검을 실행합니다."
     run_health_check
+}
+
+ensure_pdf_docker_image() {
+    if [[ "$PDF_BUILD_MODE" == "offline" ]]; then
+        if docker image inspect "$PDF_DOCKER_IMAGE" >/dev/null 2>&1; then
+            log_info "오프라인 모드: 기존 PDF 변환 이미지 사용: $PDF_DOCKER_IMAGE"
+        else
+            log_error "오프라인 모드이며 PDF 변환 이미지가 없습니다: $PDF_DOCKER_IMAGE"
+            exit 1
+        fi
+        return
+    fi
+
+    log_info "온라인 모드: PDF 변환용 Docker 이미지를 빌드합니다: $PDF_DOCKER_IMAGE"
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    cat > "$tmpdir/Dockerfile" <<'DOCKERFILE'
+FROM debian:stable-slim
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends wkhtmltopdf ca-certificates fonts-noto-cjk && \
+    rm -rf /var/lib/apt/lists/*
+WORKDIR /work
+ENTRYPOINT ["wkhtmltopdf"]
+DOCKERFILE
+
+    docker build -t "$PDF_DOCKER_IMAGE" "$tmpdir"
+    rm -rf "$tmpdir"
+}
+
+convert_html_to_pdf() {
+    local html_file="$1"
+    local pdf_file="${html_file%.html}.pdf"
+
+    if ! command -v docker >/dev/null 2>&1; then
+        log_error "docker를 찾을 수 없습니다. PDF 변환을 위해 docker를 설치하거나 ENABLE_PDF_CONVERT를 false로 설정하세요."
+        return 1
+    fi
+
+    ensure_pdf_docker_image
+
+    log_info "PDF 변환을 시작합니다: $html_file -> $pdf_file"
+    if docker run --rm -v "${OUTPUT_DIR}:${OUTPUT_DIR}" -w "${OUTPUT_DIR}" "$PDF_DOCKER_IMAGE" \
+        "$(basename "$html_file")" "$(basename "$pdf_file")"; then
+        log_success "PDF 보고서가 생성되었습니다: $pdf_file"
+    else
+        log_warn "PDF 변환에 실패했습니다. wkhtmltopdf 명령을 직접 실행해주세요."
+        return 1
+    fi
 }
 
 # Collect Kubernetes cluster information
@@ -1569,6 +1620,10 @@ main() {
     echo
     log_success "공식 보고서가 생성되었습니다: $html_file"
     log_success "공식 JSON 보고서가 생성되었습니다: $json_file"
+
+    if [[ "$ENABLE_PDF_CONVERT" == "true" ]]; then
+        convert_html_to_pdf "$html_file"
+    fi
     echo
     echo "========================================"
     echo "다음 명령어로 PDF로 변환할 수 있습니다:"

@@ -151,6 +151,35 @@ run_health_check() {
     log_success "점검 완료: $JSON_INPUT"
 }
 
+find_latest_health_report() {
+    ls -t "${OUTPUT_DIR}"/k8s_health_report_*.json 2>/dev/null | head -1 || true
+}
+
+ensure_json_input() {
+    # 1) 사용자가 직접 지정한 JSON을 우선
+    if [[ -n "$JSON_INPUT" ]]; then
+        if [[ ! -f "$JSON_INPUT" ]]; then
+            log_error "JSON 파일을 찾을 수 없습니다: $JSON_INPUT"
+            exit 1
+        fi
+        log_info "제공된 JSON 파일을 사용합니다: $JSON_INPUT"
+        return
+    fi
+
+    # 2) 최신 k8s_health_report_* JSON 자동 탐색
+    local latest_json
+    latest_json=$(find_latest_health_report)
+    if [[ -n "$latest_json" && -f "$latest_json" ]]; then
+        JSON_INPUT="$latest_json"
+        log_info "가장 최근 점검 JSON을 사용합니다: $JSON_INPUT"
+        return
+    fi
+
+    # 3) 없으면 새 점검 실행
+    log_info "기존 점검 JSON을 찾지 못했습니다. 새 점검을 실행합니다."
+    run_health_check
+}
+
 # Collect Kubernetes cluster information
 collect_cluster_info() {
     log_info "클러스터 정보를 수집합니다..."
@@ -1509,15 +1538,7 @@ main() {
     fi
 
     # If JSON input not provided, run health check
-    if [[ -z "$JSON_INPUT" ]]; then
-        run_health_check
-    else
-        if [[ ! -f "$JSON_INPUT" ]]; then
-            log_error "JSON 파일을 찾을 수 없습니다: $JSON_INPUT"
-            exit 1
-        fi
-        log_info "입력 JSON 파일: $JSON_INPUT"
-    fi
+    ensure_json_input
 
     # Collect cluster information (skip if kubectl not accessible)
     if timeout 3 kubectl cluster-info &>/dev/null; then

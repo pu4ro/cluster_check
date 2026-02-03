@@ -275,10 +275,13 @@ store_result() {
     local status="$2"
     local details="$3"
     local explanation="${4:-}"
-    
+
     CHECK_RESULTS["$check_name"]="$status"
     CHECK_DETAILS["$check_name"]="$details"
-    
+    if [[ -n "$explanation" ]]; then
+        CHECK_DETAILS["${check_name}_explanation"]="$explanation"
+    fi
+
     case "$status" in
         "SUCCESS")
             SUCCESS_CHECKS+=("$check_name")
@@ -292,6 +295,145 @@ store_result() {
     esac
 }
 
+# Render single node resource HTML card
+# Usage: render_node_html "$node_name" "$node_data"
+# Output: Appends to global node_content variable
+render_node_html() {
+    local node_name="$1"
+    local node_data="$2"
+
+    # Parse JSON with error handling
+    local pod_count=$(echo "$node_data" | jq -r '.pod_count // 0' 2>/dev/null || echo "0")
+    local max_pods=$(echo "$node_data" | jq -r '.max_pods // 0' 2>/dev/null || echo "0")
+    local pod_percent=$(echo "$node_data" | jq -r '.pod_percent // "0.0"' 2>/dev/null || echo "0.0")
+    local cpu_percent=$(echo "$node_data" | jq -r '.cpu_percent // "0.0"' 2>/dev/null || echo "0.0")
+    local memory_percent=$(echo "$node_data" | jq -r '.memory_percent // "0.0"' 2>/dev/null || echo "0.0")
+
+    # Ensure percentages are valid numbers
+    [[ ! "$pod_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && pod_percent="0.0"
+    [[ ! "$cpu_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && cpu_percent="0.0"
+    [[ ! "$memory_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && memory_percent="0.0"
+
+    # Determine color based on usage thresholds from config
+    local threshold_warn=${RESOURCE_THRESHOLD_WARN:-50}
+    local threshold_high=${RESOURCE_THRESHOLD_HIGH:-70}
+
+    local cpu_color_hex="#28a745"
+    local memory_color_hex="#28a745"
+    local pod_color_hex="#28a745"
+
+    local cpu_num=$(echo "$cpu_percent" | cut -d. -f1)
+    local memory_num=$(echo "$memory_percent" | cut -d. -f1)
+    local pod_num=$(echo "$pod_percent" | cut -d. -f1)
+
+    if [[ $cpu_num -ge $threshold_high ]]; then cpu_color_hex="#dc3545"
+    elif [[ $cpu_num -ge $threshold_warn ]]; then cpu_color_hex="#ffc107"; fi
+
+    if [[ $memory_num -ge $threshold_high ]]; then memory_color_hex="#dc3545"
+    elif [[ $memory_num -ge $threshold_warn ]]; then memory_color_hex="#ffc107"; fi
+
+    if [[ $pod_num -ge $threshold_high ]]; then pod_color_hex="#dc3545"
+    elif [[ $pod_num -ge $threshold_warn ]]; then pod_color_hex="#ffc107"; fi
+
+    local safe_node_name="${node_name//[^a-zA-Z0-9]/_}"
+
+    node_content+="<div class=\"node-item\">
+        <div class=\"node-title\">
+            <i class=\"fas fa-server\"></i>
+            $node_name
+        </div>
+
+        <!-- Pod Usage -->
+        <div class=\"resource-section\">
+            <div class=\"resource-header\">
+                <span class=\"resource-label\"><i class=\"fas fa-cube me-2\"></i>파드 사용률</span>
+                <span class=\"resource-value\" style=\"color: $pod_color_hex;\">$pod_count/$max_pods</span>
+            </div>
+            <div class=\"chart-grid\">
+                <div>
+                    <div class=\"resource-bar\">
+                        <div class=\"fill\" style=\"background: $pod_color_hex; width: ${pod_percent}%;\"></div>
+                        <div class=\"label\">${pod_percent}% 사용</div>
+                    </div>
+                </div>
+                <div class=\"chart-container\">
+                    <canvas id=\"pod-chart-${safe_node_name}\"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- CPU Usage -->
+        <div class=\"resource-section\">
+            <div class=\"resource-header\">
+                <span class=\"resource-label\"><i class=\"fas fa-microchip me-2\"></i>CPU 사용률</span>
+                <span class=\"resource-value\" style=\"color: $cpu_color_hex;\">${cpu_percent%.*}/100</span>
+            </div>
+            <div class=\"chart-grid\">
+                <div>
+                    <div class=\"resource-bar\">
+                        <div class=\"fill\" style=\"background: $cpu_color_hex; width: ${cpu_percent}%;\"></div>
+                        <div class=\"label\">${cpu_percent}% 사용, $((100 - ${cpu_percent%.*}))% 여유</div>
+                    </div>
+                </div>
+                <div class=\"chart-container\">
+                    <canvas id=\"cpu-chart-${safe_node_name}\"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Memory Usage -->
+        <div class=\"resource-section\">
+            <div class=\"resource-header\">
+                <span class=\"resource-label\"><i class=\"fas fa-memory me-2\"></i>메모리 사용률</span>
+                <span class=\"resource-value\" style=\"color: $memory_color_hex;\">${memory_percent%.*}/100</span>
+            </div>
+            <div class=\"chart-grid\">
+                <div>
+                    <div class=\"resource-bar\">
+                        <div class=\"fill\" style=\"background: $memory_color_hex; width: ${memory_percent}%;\"></div>
+                        <div class=\"label\">${memory_percent}% 사용, $((100 - ${memory_percent%.*}))% 여유</div>
+                    </div>
+                </div>
+                <div class=\"chart-container\">
+                    <canvas id=\"memory-chart-${safe_node_name}\"></canvas>
+                </div>
+            </div>
+        </div>"
+
+    # Add GPU if available
+    if echo "$node_data" | jq -e '.gpu_percent' >/dev/null 2>&1; then
+        local gpu_percent=$(echo "$node_data" | jq -r '.gpu_percent // "0.0"' 2>/dev/null || echo "0.0")
+        [[ ! "$gpu_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && gpu_percent="0.0"
+
+        local gpu_color_hex="#28a745"
+        local gpu_num=$(echo "$gpu_percent" | cut -d. -f1)
+        if [[ $gpu_num -ge $threshold_high ]]; then gpu_color_hex="#dc3545"
+        elif [[ $gpu_num -ge $threshold_warn ]]; then gpu_color_hex="#ffc107"; fi
+
+        node_content+="
+        <!-- GPU Usage -->
+        <div class=\"resource-section\">
+            <div class=\"resource-header\">
+                <span class=\"resource-label\"><i class=\"fas fa-microchip me-2\"></i>GPU 사용률</span>
+                <span class=\"resource-value\" style=\"color: $gpu_color_hex;\">${gpu_percent%.*}/100</span>
+            </div>
+            <div class=\"chart-grid\">
+                <div>
+                    <div class=\"resource-bar\">
+                        <div class=\"fill\" style=\"background: $gpu_color_hex; width: ${gpu_percent}%;\"></div>
+                        <div class=\"label\">${gpu_percent}% 사용, $((100 - ${gpu_percent%.*}))% 여유</div>
+                    </div>
+                </div>
+                <div class=\"chart-container\">
+                    <canvas id=\"gpu-chart-${safe_node_name}\"></canvas>
+                </div>
+            </div>
+        </div>"
+    fi
+
+    node_content+="</div>"
+}
+
 # Check 1: Node status
 check_node_status() {
     log_info "노드 상태 점검 중..."
@@ -300,20 +442,20 @@ check_node_status() {
     local node_info
     if ! node_info=$(kubectl_cmd get nodes -o json 2>/dev/null); then
         log_error "Failed to get node information"
-        store_result "nodes" "FAILED" "클러스터 노드 정보를 가져올 수 없습니다."
+        store_result "nodes" "FAILED" "클러스터 노드 정보를 가져올 수 없습니다." "kubectl 명령 실행 실패. kubeconfig 설정과 클러스터 연결 상태를 확인하세요."
         return 1
     fi
     
     if [[ -z "$node_info" ]]; then
         log_error "Empty node information received"
-        store_result "nodes" "FAILED" "노드 정보가 비어있습니다."
+        store_result "nodes" "FAILED" "노드 정보가 비어있습니다." "클러스터에 등록된 노드가 없거나 API 서버 응답이 비정상입니다."
         return 1
     fi
     
     local node_count
     if ! node_count=$(echo "$node_info" | jq -r '.items | length' 2>/dev/null); then
         log_error "Failed to parse node count"
-        store_result "nodes" "FAILED" "노드 수를 파싱할 수 없습니다."
+        store_result "nodes" "FAILED" "노드 수를 파싱할 수 없습니다." "JSON 응답 형식이 예상과 다릅니다. jq 설치 여부를 확인하세요."
         return 1
     fi
     
@@ -672,14 +814,14 @@ check_rook_ceph_health() {
     local desired_replicas=$(echo "$tools_deployment" | jq -r '.spec.replicas // 1')
     
     if [[ $ready_replicas -lt $desired_replicas ]]; then
-        store_result "rook_ceph" "FAILED" "rook-ceph-tools 파드가 준비되지 않았습니다 ($ready_replicas/$desired_replicas)." "tools 파드가 실행 중이어야 Ceph 상태를 확인할 수 있습니다."
+        store_result "rook_ceph" "FAILED" "[Rook-Ceph] 파드 상태: 준비되지 않음 ($ready_replicas/$desired_replicas 복제본)" "tools 파드가 실행 중이어야 Ceph 상태를 확인할 수 있습니다."
         return
     fi
-    
+
     # Get the tools pod name
     local tools_pod=$(kubectl_cmd get pods -n rook-ceph -l app=rook-ceph-tools -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
     if [[ -z "$tools_pod" ]]; then
-        store_result "rook_ceph" "FAILED" "rook-ceph-tools 파드를 찾을 수 없습니다." "tools 파드가 실행 중이어야 합니다."
+        store_result "rook_ceph" "FAILED" "[Rook-Ceph] 파드 상태: 찾을 수 없음" "tools 파드가 실행 중이어야 합니다."
         return
     fi
     
@@ -728,7 +870,7 @@ check_ingress_backends() {
     local total_ingresses=$(echo "$ingress_info" | jq -r '.items | length')
 
     if [[ $total_ingresses -eq 0 ]]; then
-        store_result "ingress" "SUCCESS" "Ingress 리소스가 없습니다."
+        store_result "ingress" "SUCCESS" "Ingress 리소스가 없습니다." "클러스터에 정의된 Ingress가 없어 점검을 건너뜁니다."
         return
     fi
 
@@ -793,14 +935,14 @@ check_harbor_disk_usage() {
     local desired_replicas=$(echo "$harbor_deployment" | jq -r '.spec.replicas // 1')
     
     if [[ $ready_replicas -lt $desired_replicas ]]; then
-        store_result "harbor_disk" "FAILED" "harbor-registry 파드가 준비되지 않았습니다 ($ready_replicas/$desired_replicas)." "Harbor registry 파드가 실행 중이어야 합니다."
+        store_result "harbor_disk" "FAILED" "[Harbor] 파드 상태: 준비되지 않음 ($ready_replicas/$desired_replicas 복제본)" "Harbor registry 파드가 실행 중이어야 합니다."
         return
     fi
-    
+
     # Get the harbor-registry pod name
     local harbor_pod=$(kubectl_cmd get pods -n harbor -l app=harbor,component=registry -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
     if [[ -z "$harbor_pod" ]]; then
-        store_result "harbor_disk" "FAILED" "harbor-registry 파드를 찾을 수 없습니다." "registry 파드가 실행 중이어야 합니다."
+        store_result "harbor_disk" "FAILED" "[Harbor] 파드 상태: 찾을 수 없음" "registry 파드가 실행 중이어야 합니다."
         return
     fi
     
@@ -853,14 +995,14 @@ check_minio_disk_usage() {
     local desired_replicas=$(echo "$minio_statefulset" | jq -r '.spec.replicas // 1')
     
     if [[ $ready_replicas -lt $desired_replicas ]]; then
-        store_result "minio_disk" "FAILED" "minio 파드가 준비되지 않았습니다 ($ready_replicas/$desired_replicas)." "Minio 파드가 실행 중이어야 합니다."
+        store_result "minio_disk" "FAILED" "[Minio] 파드 상태: 준비되지 않음 ($ready_replicas/$desired_replicas 복제본)" "Minio 파드가 실행 중이어야 합니다."
         return
     fi
-    
+
     # Get the minio pod name (usually minio-0 for statefulset)
     local minio_pod=$(kubectl_cmd get pods -n minio -l app.kubernetes.io/name=minio -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
     if [[ -z "$minio_pod" ]]; then
-        store_result "minio_disk" "FAILED" "minio 파드를 찾을 수 없습니다." "Minio 파드가 실행 중이어야 합니다."
+        store_result "minio_disk" "FAILED" "[Minio] 파드 상태: 찾을 수 없음" "Minio 파드가 실행 중이어야 합니다."
         return
     fi
     
@@ -1646,273 +1788,27 @@ EOF
     if [[ ${#NODE_RESOURCES[@]} -gt 0 ]]; then
         for node_name in "${!NODE_RESOURCES[@]}"; do
             local node_data="${NODE_RESOURCES[$node_name]}"
-            
-            # Debug logging
             log_debug "Processing node resources for: $node_name"
-            log_debug "Node data: $node_data"
-            
-            # Parse JSON with error handling
-            local pod_count=$(echo "$node_data" | jq -r '.pod_count // 0' 2>/dev/null || echo "0")
-            local max_pods=$(echo "$node_data" | jq -r '.max_pods // 0' 2>/dev/null || echo "0")
-            local pod_percent=$(echo "$node_data" | jq -r '.pod_percent // "0.0"' 2>/dev/null || echo "0.0")
-            local cpu_percent=$(echo "$node_data" | jq -r '.cpu_percent // "0.0"' 2>/dev/null || echo "0.0")
-            local memory_percent=$(echo "$node_data" | jq -r '.memory_percent // "0.0"' 2>/dev/null || echo "0.0")
-            
-            # Ensure percentages are valid numbers
-            [[ ! "$pod_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && pod_percent="0.0"
-            [[ ! "$cpu_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && cpu_percent="0.0"
-            [[ ! "$memory_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && memory_percent="0.0"
-            
-            # Determine color based on usage (0-50% green, 50-70% yellow, 70%+ red)
-            local cpu_color_hex="#28a745"
-            local memory_color_hex="#28a745"
-            local pod_color_hex="#28a745"
-            
-            local cpu_num=$(echo "$cpu_percent" | cut -d. -f1)
-            local memory_num=$(echo "$memory_percent" | cut -d. -f1)
-            local pod_num=$(echo "$pod_percent" | cut -d. -f1)
-            
-            if [[ $cpu_num -ge 70 ]]; then cpu_color_hex="#dc3545"
-            elif [[ $cpu_num -ge 50 ]]; then cpu_color_hex="#ffc107"; fi
-            
-            if [[ $memory_num -ge 70 ]]; then memory_color_hex="#dc3545"
-            elif [[ $memory_num -ge 50 ]]; then memory_color_hex="#ffc107"; fi
-            
-            if [[ $pod_num -ge 70 ]]; then pod_color_hex="#dc3545"
-            elif [[ $pod_num -ge 50 ]]; then pod_color_hex="#ffc107"; fi
-            
-            node_content+="<div class=\"node-item\">
-                <div class=\"node-title\">
-                    <i class=\"fas fa-server\"></i>
-                    $node_name
-                </div>
-                
-                <!-- Pod Usage -->
-                <div class=\"resource-section\">
-                    <div class=\"resource-header\">
-                        <span class=\"resource-label\"><i class=\"fas fa-cube me-2\"></i>파드 사용률</span>
-                        <span class=\"resource-value\" style=\"color: $pod_color_hex;\">$pod_count/$max_pods</span>
-                    </div>
-                    <div class=\"chart-grid\">
-                        <div>
-                            <div class=\"resource-bar\">
-                                <div class=\"fill\" style=\"background: $pod_color_hex; width: ${pod_percent}%;\"></div>
-                                <div class=\"label\">${pod_percent}% 사용</div>
-                            </div>
-                        </div>
-                        <div class=\"chart-container\">
-                            <canvas id=\"pod-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- CPU Usage -->
-                <div class=\"resource-section\">
-                    <div class=\"resource-header\">
-                        <span class=\"resource-label\"><i class=\"fas fa-microchip me-2\"></i>CPU 사용률</span>
-                        <span class=\"resource-value\" style=\"color: $cpu_color_hex;\">${cpu_percent%.*}/100</span>
-                    </div>
-                    <div class=\"chart-grid\">
-                        <div>
-                            <div class=\"resource-bar\">
-                                <div class=\"fill\" style=\"background: $cpu_color_hex; width: ${cpu_percent}%;\"></div>
-                                <div class=\"label\">${cpu_percent}% 사용, $((100 - ${cpu_percent%.*}))% 여유</div>
-                            </div>
-                        </div>
-                        <div class=\"chart-container\">
-                            <canvas id=\"cpu-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Memory Usage -->
-                <div class=\"resource-section\">
-                    <div class=\"resource-header\">
-                        <span class=\"resource-label\"><i class=\"fas fa-memory me-2\"></i>메모리 사용률</span>
-                        <span class=\"resource-value\" style=\"color: $memory_color_hex;\">${memory_percent%.*}/100</span>
-                    </div>
-                    <div class=\"chart-grid\">
-                        <div>
-                            <div class=\"resource-bar\">
-                                <div class=\"fill\" style=\"background: $memory_color_hex; width: ${memory_percent}%;\"></div>
-                                <div class=\"label\">${memory_percent}% 사용, $((100 - ${memory_percent%.*}))% 여유</div>
-                            </div>
-                        </div>
-                        <div class=\"chart-container\">
-                            <canvas id=\"memory-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
-                        </div>
-                    </div>
-                </div>"
-            
-            # Add GPU if available
-            if echo "$node_data" | jq -e '.gpu_percent' >/dev/null 2>&1; then
-                local gpu_percent=$(echo "$node_data" | jq -r '.gpu_percent // "0.0"' 2>/dev/null || echo "0.0")
-                [[ ! "$gpu_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && gpu_percent="0.0"
-                
-                local gpu_color_hex="#28a745"
-                local gpu_num=$(echo "$gpu_percent" | cut -d. -f1)
-                if [[ $gpu_num -ge 70 ]]; then gpu_color_hex="#dc3545"
-                elif [[ $gpu_num -ge 50 ]]; then gpu_color_hex="#ffc107"; fi
-                
-                node_content+="
-                <!-- GPU Usage -->
-                <div class=\"resource-section\">
-                    <div class=\"resource-header\">
-                        <span class=\"resource-label\"><i class=\"fas fa-microchip me-2\"></i>GPU 사용률</span>
-                        <span class=\"resource-value\" style=\"color: $gpu_color_hex;\">${gpu_percent%.*}/100</span>
-                    </div>
-                    <div class=\"chart-grid\">
-                        <div>
-                            <div class=\"resource-bar\">
-                                <div class=\"fill\" style=\"background: $gpu_color_hex; width: ${gpu_percent}%;\"></div>
-                                <div class=\"label\">${gpu_percent}% 사용, $((100 - ${gpu_percent%.*}))% 여유</div>
-                            </div>
-                        </div>
-                        <div class=\"chart-container\">
-                            <canvas id=\"gpu-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
-                        </div>
-                    </div>
-                </div>"
-            fi
-            
-            node_content+="</div>"
+            render_node_html "$node_name" "$node_data"
         done
     else
         log_warn "No node resources data available, generating demo data"
+
+        # Add demo data warning banner
+        node_content+="<div class=\"alert alert-warning\" role=\"alert\" style=\"margin-bottom: 20px; border-left: 4px solid #ffc107;\">
+            <h5 class=\"alert-heading\"><i class=\"fas fa-exclamation-triangle me-2\"></i>데모 데이터 표시 중</h5>
+            <p class=\"mb-0\">실제 노드 리소스 데이터를 수집할 수 없어 시각화 예시용 데모 데이터를 표시합니다. 클러스터 연결 상태를 확인하세요.</p>
+        </div>"
+
         # Generate demo data for visualization
         NODE_RESOURCES["master-node"]="{\"name\":\"master-node\",\"pod_count\":15,\"max_pods\":110,\"pod_percent\":\"13.6\",\"cpu_allocatable\":7800,\"cpu_requests\":2340,\"cpu_percent\":\"30.0\",\"memory_allocatable\":15839268,\"memory_requests\":4251737,\"memory_percent\":\"26.8\"}"
         NODE_RESOURCES["worker-node-1"]="{\"name\":\"worker-node-1\",\"pod_count\":28,\"max_pods\":110,\"pod_percent\":\"25.5\",\"cpu_allocatable\":7800,\"cpu_requests\":4680,\"cpu_percent\":\"60.0\",\"memory_allocatable\":15839268,\"memory_requests\":9503461,\"memory_percent\":\"60.0\",\"gpu_capacity\":\"2\",\"gpu_allocatable\":\"2\",\"gpu_requests\":\"1\",\"gpu_percent\":\"50.0\"}"
         NODE_RESOURCES["worker-node-2"]="{\"name\":\"worker-node-2\",\"pod_count\":35,\"max_pods\":110,\"pod_percent\":\"31.8\",\"cpu_allocatable\":7800,\"cpu_requests\":6240,\"cpu_percent\":\"80.0\",\"memory_allocatable\":15839268,\"memory_requests\":12671414,\"memory_percent\":\"80.0\"}"
-        
-        # Now process the demo data
+
+        # Process the demo data using shared render function
         for node_name in "${!NODE_RESOURCES[@]}"; do
             local node_data="${NODE_RESOURCES[$node_name]}"
-            
-            # Parse JSON with error handling
-            local pod_count=$(echo "$node_data" | jq -r '.pod_count // 0' 2>/dev/null || echo "0")
-            local max_pods=$(echo "$node_data" | jq -r '.max_pods // 0' 2>/dev/null || echo "0")
-            local pod_percent=$(echo "$node_data" | jq -r '.pod_percent // "0.0"' 2>/dev/null || echo "0.0")
-            local cpu_percent=$(echo "$node_data" | jq -r '.cpu_percent // "0.0"' 2>/dev/null || echo "0.0")
-            local memory_percent=$(echo "$node_data" | jq -r '.memory_percent // "0.0"' 2>/dev/null || echo "0.0")
-            
-            # Ensure percentages are valid numbers
-            [[ ! "$pod_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && pod_percent="0.0"
-            [[ ! "$cpu_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && cpu_percent="0.0"
-            [[ ! "$memory_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && memory_percent="0.0"
-            
-            # Determine color based on usage (0-50% green, 50-70% yellow, 70%+ red)
-            local cpu_color_hex="#28a745"
-            local memory_color_hex="#28a745"
-            local pod_color_hex="#28a745"
-            
-            local cpu_num=$(echo "$cpu_percent" | cut -d. -f1)
-            local memory_num=$(echo "$memory_percent" | cut -d. -f1)
-            local pod_num=$(echo "$pod_percent" | cut -d. -f1)
-            
-            if [[ $cpu_num -ge 70 ]]; then cpu_color_hex="#dc3545"
-            elif [[ $cpu_num -ge 50 ]]; then cpu_color_hex="#ffc107"; fi
-            
-            if [[ $memory_num -ge 70 ]]; then memory_color_hex="#dc3545"
-            elif [[ $memory_num -ge 50 ]]; then memory_color_hex="#ffc107"; fi
-            
-            if [[ $pod_num -ge 70 ]]; then pod_color_hex="#dc3545"
-            elif [[ $pod_num -ge 50 ]]; then pod_color_hex="#ffc107"; fi
-            
-            node_content+="<div class=\"node-item\">
-                <div class=\"node-title\">
-                    <i class=\"fas fa-server\"></i>
-                    $node_name
-                </div>
-                
-                <!-- Pod Usage -->
-                <div class=\"resource-section\">
-                    <div class=\"resource-header\">
-                        <span class=\"resource-label\"><i class=\"fas fa-cube me-2\"></i>파드 사용률</span>
-                        <span class=\"resource-value\" style=\"color: $pod_color_hex;\">$pod_count/$max_pods</span>
-                    </div>
-                    <div class=\"chart-grid\">
-                        <div>
-                            <div class=\"resource-bar\">
-                                <div class=\"fill\" style=\"background: $pod_color_hex; width: ${pod_percent}%;\"></div>
-                                <div class=\"label\">${pod_percent}% 사용</div>
-                            </div>
-                        </div>
-                        <div class=\"chart-container\">
-                            <canvas id=\"pod-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- CPU Usage -->
-                <div class=\"resource-section\">
-                    <div class=\"resource-header\">
-                        <span class=\"resource-label\"><i class=\"fas fa-microchip me-2\"></i>CPU 사용률</span>
-                        <span class=\"resource-value\" style=\"color: $cpu_color_hex;\">${cpu_percent%.*}/100</span>
-                    </div>
-                    <div class=\"chart-grid\">
-                        <div>
-                            <div class=\"resource-bar\">
-                                <div class=\"fill\" style=\"background: $cpu_color_hex; width: ${cpu_percent}%;\"></div>
-                                <div class=\"label\">${cpu_percent}% 사용, $((100 - ${cpu_percent%.*}))% 여유</div>
-                            </div>
-                        </div>
-                        <div class=\"chart-container\">
-                            <canvas id=\"cpu-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Memory Usage -->
-                <div class=\"resource-section\">
-                    <div class=\"resource-header\">
-                        <span class=\"resource-label\"><i class=\"fas fa-memory me-2\"></i>메모리 사용률</span>
-                        <span class=\"resource-value\" style=\"color: $memory_color_hex;\">${memory_percent%.*}/100</span>
-                    </div>
-                    <div class=\"chart-grid\">
-                        <div>
-                            <div class=\"resource-bar\">
-                                <div class=\"fill\" style=\"background: $memory_color_hex; width: ${memory_percent}%;\"></div>
-                                <div class=\"label\">${memory_percent}% 사용, $((100 - ${memory_percent%.*}))% 여유</div>
-                            </div>
-                        </div>
-                        <div class=\"chart-container\">
-                            <canvas id=\"memory-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
-                        </div>
-                    </div>
-                </div>"
-            
-            # Add GPU if available
-            if echo "$node_data" | jq -e '.gpu_percent' >/dev/null 2>&1; then
-                local gpu_percent=$(echo "$node_data" | jq -r '.gpu_percent // "0.0"' 2>/dev/null || echo "0.0")
-                [[ ! "$gpu_percent" =~ ^[0-9]+\.?[0-9]*$ ]] && gpu_percent="0.0"
-                
-                local gpu_color_hex="#28a745"
-                local gpu_num=$(echo "$gpu_percent" | cut -d. -f1)
-                if [[ $gpu_num -ge 70 ]]; then gpu_color_hex="#dc3545"
-                elif [[ $gpu_num -ge 50 ]]; then gpu_color_hex="#ffc107"; fi
-                
-                node_content+="
-                <!-- GPU Usage -->
-                <div class=\"resource-section\">
-                    <div class=\"resource-header\">
-                        <span class=\"resource-label\"><i class=\"fas fa-microchip me-2\"></i>GPU 사용률</span>
-                        <span class=\"resource-value\" style=\"color: $gpu_color_hex;\">${gpu_percent%.*}/100</span>
-                    </div>
-                    <div class=\"chart-grid\">
-                        <div>
-                            <div class=\"resource-bar\">
-                                <div class=\"fill\" style=\"background: $gpu_color_hex; width: ${gpu_percent}%;\"></div>
-                                <div class=\"label\">${gpu_percent}% 사용, $((100 - ${gpu_percent%.*}))% 여유</div>
-                            </div>
-                        </div>
-                        <div class=\"chart-container\">
-                            <canvas id=\"gpu-chart-${node_name//[^a-zA-Z0-9]/_}\"></canvas>
-                        </div>
-                    </div>
-                </div>"
-            fi
-            
-            node_content+="</div>"
+            render_node_html "$node_name" "$node_data"
         done
     fi
     

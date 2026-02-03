@@ -141,7 +141,12 @@ run_health_check() {
     fi
 
     # Run health check in JSON mode
-    bash "${SCRIPT_DIR}/k8s_health_check.sh" --output json --interactive
+    # Use --interactive only if running in a terminal
+    local interactive_flag=""
+    if [[ -t 0 ]]; then
+        interactive_flag="--interactive"
+    fi
+    bash "${SCRIPT_DIR}/k8s_health_check.sh" --output json $interactive_flag
 
     # Find the latest JSON file
     JSON_INPUT=$(ls -t "${OUTPUT_DIR}"/k8s_health_report_*.json 2>/dev/null | head -1)

@@ -977,11 +977,12 @@ add_check_summary_table() {
         <thead>
             <tr>
                 <th style="width: 5%;">No.</th>
-                <th style="width: 20%;">점검 항목</th>
-                <th style="width: 20%;">점검 기준</th>
-                <th style="width: 10%;">중요도</th>
-                <th style="width: 12%;">조치결과</th>
-                <th style="width: 33%;">요약 설명</th>
+                <th style="width: 18%;">점검 항목</th>
+                <th style="width: 15%;">점검 기준</th>
+                <th style="width: 8%;">중요도</th>
+                <th style="width: 10%;">조치결과</th>
+                <th style="width: 22%;">요약 설명</th>
+                <th style="width: 22%;">담당자 의견</th>
             </tr>
         </thead>
         <tbody>
@@ -994,6 +995,7 @@ TABLEEOF
     local check_criteria=("모든 노드가 Ready 상태" "모든 파드가 Running 상태" "모든 디플로이먼트가 정상 복제" "모든 서비스에 엔드포인트 존재" "모든 PVC가 Bound 상태" "모든 Ingress가 백엔드 연결" "외부 URL 접근 가능" "Ceph HEALTH_OK 상태" "디스크 사용률 80% 미만" "디스크 사용률 80% 미만")
     local check_severity_vars=("CHECK_NODES_SEVERITY" "CHECK_PODS_SEVERITY" "CHECK_DEPLOYMENTS_SEVERITY" "CHECK_SERVICES_SEVERITY" "CHECK_STORAGE_SEVERITY" "CHECK_INGRESS_SEVERITY" "CHECK_URL_CHECK_SEVERITY" "CHECK_ROOK_CEPH_SEVERITY" "CHECK_HARBOR_DISK_SEVERITY" "CHECK_MINIO_DISK_SEVERITY")
     local check_status_vars=("CHECK_NODES_STATUS" "CHECK_PODS_STATUS" "CHECK_DEPLOYMENTS_STATUS" "CHECK_SERVICES_STATUS" "CHECK_STORAGE_STATUS" "CHECK_INGRESS_STATUS" "CHECK_URL_CHECK_STATUS" "CHECK_ROOK_CEPH_STATUS" "CHECK_HARBOR_DISK_STATUS" "CHECK_MINIO_DISK_STATUS")
+    local check_comment_vars=("CHECK_NODES_COMMENT" "CHECK_PODS_COMMENT" "CHECK_DEPLOYMENTS_COMMENT" "CHECK_SERVICES_COMMENT" "CHECK_STORAGE_COMMENT" "CHECK_INGRESS_COMMENT" "CHECK_URL_CHECK_COMMENT" "CHECK_ROOK_CEPH_COMMENT" "CHECK_HARBOR_DISK_COMMENT" "CHECK_MINIO_DISK_COMMENT")
 
     for i in "${!check_names[@]}"; do
         local check_name="${check_names[$i]}"
@@ -1003,11 +1005,13 @@ TABLEEOF
         local status=$(jq -r ".check_results.${check_name}.status // \"UNKNOWN\"" "$JSON_INPUT")
         local details=$(jq -r ".check_results.${check_name}.details // \"정보 없음\"" "$JSON_INPUT" | sed 's/"/\&quot;/g')
 
-        # Get severity and action status from .env variables
+        # Get severity, action status, and comment from .env variables
         local severity_var="${check_severity_vars[$i]}"
         local status_var="${check_status_vars[$i]}"
+        local comment_var="${check_comment_vars[$i]}"
         local severity="${!severity_var:-Major}"
         local action_status="${!status_var:-N/A}"
+        local comment="${!comment_var:-}"
 
         # Apply styling based on severity
         local severity_display=""
@@ -1032,6 +1036,14 @@ TABLEEOF
             summary_details="${summary_details}..."
         fi
 
+        # Generate comment cell - editable if empty, display text if set
+        local comment_cell=""
+        if [[ -n "$comment" ]]; then
+            comment_cell="<td style=\"font-size: 9pt;\">${comment}</td>"
+        else
+            comment_cell="<td class=\"editable-cell\" contenteditable=\"true\" style=\"font-size: 9pt; background-color: #fffef0; border: 1px dashed #ccc;\"></td>"
+        fi
+
         cat >> "$html_file" << ROWEOF
             <tr>
                 <td style="text-align: center;">${check_index}</td>
@@ -1040,6 +1052,7 @@ TABLEEOF
                 <td style="text-align: center;">${severity_display}</td>
                 <td style="text-align: center;">${action_status}</td>
                 <td>${summary_details}</td>
+                ${comment_cell}
             </tr>
 ROWEOF
         ((check_index++))

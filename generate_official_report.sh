@@ -141,12 +141,10 @@ run_health_check() {
     fi
 
     # Run health check in JSON mode
-    # Use --interactive only if running in a terminal
-    local interactive_flag=""
-    if [[ -t 0 ]]; then
-        interactive_flag="--interactive"
-    fi
-    bash "${SCRIPT_DIR}/k8s_health_check.sh" --output json $interactive_flag
+    # k8s_health_check.sh will auto-detect terminal and handle interactive mode
+    # Use || true because k8s_health_check.sh exits non-zero when issues are found,
+    # but we still want to generate the report in that case.
+    bash "${SCRIPT_DIR}/k8s_health_check.sh" --output json || true
 
     # Find the latest JSON file
     JSON_INPUT=$(ls -t "${OUTPUT_DIR}"/k8s_health_report_*.json 2>/dev/null | head -1)
@@ -412,6 +410,7 @@ parse_json_data() {
     WARNING_COUNT=$(jq -r '.summary.warning_count' "$JSON_INPUT" 2>/dev/null || echo "0")
     FAILED_COUNT=$(jq -r '.summary.failed_count' "$JSON_INPUT" 2>/dev/null || echo "0")
     OVERALL_STATUS=$(jq -r '.overall_status' "$JSON_INPUT" 2>/dev/null || echo "UNKNOWN")
+    DEMO_DATA_USED=$(jq -r '.demo_data_used // false' "$JSON_INPUT" 2>/dev/null || echo "false")
 
     # Calculate success rate
     if [[ $TOTAL_CHECKS -gt 0 ]]; then
@@ -782,6 +781,9 @@ HTMLEOF
     # Add cover page
     add_cover_page "$html_file"
 
+    # Add demo data warning if demo data was used
+    add_demo_data_warning "$html_file"
+
     # Add executive summary (starts on new page due to cover-page page-break-after)
     add_executive_summary "$html_file"
 
@@ -846,6 +848,25 @@ add_cover_page() {
 COVEREOF
 }
 
+# Add demo data warning banner if demo data was used
+add_demo_data_warning() {
+    local html_file="$1"
+
+    if [[ "$DEMO_DATA_USED" == "true" ]]; then
+        cat >> "$html_file" << 'DEMOWARNINGEOF'
+    <div style="background-color: #fff3cd; border: 2px solid #ffc107; border-radius: 4px; padding: 15px; margin: 20px 0; page-break-inside: avoid;">
+        <h4 style="color: #856404; margin: 0 0 10px 0;">⚠️ 주의: 데모 데이터 포함</h4>
+        <p style="color: #856404; margin: 0; font-size: 11pt;">
+            본 보고서에는 실제 클러스터 데이터를 수집할 수 없어 생성된 <strong>데모 데이터</strong>가 일부 포함되어 있습니다.
+            노드 리소스 정보는 시각화 예시용이며 실제 클러스터 상태를 반영하지 않습니다.
+            정확한 데이터가 필요한 경우 클러스터 연결 상태를 확인 후 재점검해 주세요.
+        </p>
+    </div>
+DEMOWARNINGEOF
+        log_warn "보고서에 데모 데이터 경고 배너가 추가되었습니다."
+    fi
+}
+
 # Add executive summary
 add_executive_summary() {
     local html_file="$1"
@@ -883,13 +904,13 @@ add_executive_summary() {
 
             case "$severity" in
                 "Critical")
-                    ((critical_count++))
+                    critical_count=$((critical_count + 1))
                     ;;
                 "Major")
-                    ((major_count++))
+                    major_count=$((major_count + 1))
                     ;;
                 "Minor")
-                    ((minor_count++))
+                    minor_count=$((minor_count + 1))
                     ;;
             esac
         fi
@@ -1055,7 +1076,7 @@ TABLEEOF
                 ${comment_cell}
             </tr>
 ROWEOF
-        ((check_index++))
+        check_index=$((check_index + 1))
     done
 
     cat >> "$html_file" << TABLEENDEOF
@@ -1480,7 +1501,7 @@ ISSUEEOF
                 <td>${prevention}</td>
             </tr>
 ISSUEROWEOF
-            ((issue_id++))
+            issue_id=$((issue_id + 1))
         fi
     done
 

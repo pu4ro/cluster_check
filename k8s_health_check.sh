@@ -16,6 +16,7 @@ declare -A NODE_RESOURCES=()
 declare -a FAILED_CHECKS=()
 declare -a WARNING_CHECKS=()
 declare -a SUCCESS_CHECKS=()
+declare -g DEMO_DATA_USED=false
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,6 +24,20 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 OUTPUT_DIR="${SCRIPT_DIR}/reports"
 KUBECONFIG=${KUBECONFIG:-"$HOME/.kube/config"}
 KUBE_CONTEXT=${KUBE_CONTEXT:-""}
+
+# Load configuration file if exists
+CONFIG_FILE="${SCRIPT_DIR}/config.conf"
+if [[ -f "$CONFIG_FILE" ]]; then
+    source "$CONFIG_FILE"
+fi
+
+# Default threshold values (can be overridden by config.conf)
+RESOURCE_THRESHOLD_MEMORY=${RESOURCE_THRESHOLD_MEMORY:-80}
+RESOURCE_THRESHOLD_POD=${RESOURCE_THRESHOLD_POD:-80}
+RESOURCE_THRESHOLD_DISK=${RESOURCE_THRESHOLD_DISK:-90}
+RESOURCE_THRESHOLD_DISK_WARN=${RESOURCE_THRESHOLD_DISK_WARN:-80}
+RESOURCE_THRESHOLD_WARN=${RESOURCE_THRESHOLD_WARN:-50}
+RESOURCE_THRESHOLD_HIGH=${RESOURCE_THRESHOLD_HIGH:-70}
 
 # Default values
 DEFAULT_OUTPUT="html"
@@ -221,9 +236,14 @@ parse_arguments() {
         esac
     done
 
-    # If URL not provided via command line, get it interactively
+    # If URL not provided via command line, get it interactively (only if in a terminal)
     if [[ "$url_provided" == "false" || -z "$TARGET_URL" ]]; then
-        get_user_input
+        if [[ -t 0 ]]; then
+            get_user_input
+        else
+            log_warn "URL이 제공되지 않았습니다. URL 점검을 건너뜁니다. (비대화형 모드)"
+            TARGET_URL=""
+        fi
     else
         # Validate URL format if provided via command line
         if [[ ! "$TARGET_URL" =~ ^https?:// ]]; then
@@ -475,9 +495,9 @@ check_node_status() {
         local node_status=$(echo "$line" | awk '{print $2}')
         
         if [[ "$node_status" == "True" ]]; then
-            ((ready_nodes++))
+            ready_nodes=$((ready_nodes + 1))
         else
-            ((not_ready_nodes++))
+            not_ready_nodes=$((not_ready_nodes + 1))
             details+="노드 '$node_name'이 Ready 상태가 아닙니다. "
         fi
     done <<< "$node_status_list"
@@ -526,31 +546,31 @@ check_node_status() {
         local pod_percent=$(echo "$node_data" | grep -o '"pod_percent":"[^"]*"' | cut -d'"' -f4 | tr -d '.')
 
         # Check memory usage
-        if [[ -n "$memory_percent" && "$memory_percent" =~ ^[0-9]+$ && "$memory_percent" -ge 80 ]]; then
+        if [[ -n "$memory_percent" && "$memory_percent" =~ ^[0-9]+$ && "$memory_percent" -ge $RESOURCE_THRESHOLD_MEMORY ]]; then
             high_memory_nodes+="노드 '$node_name' 메모리 사용률: ${memory_percent}%. "
         fi
 
         # Check pod usage
-        if [[ -n "$pod_percent" && "$pod_percent" =~ ^[0-9]+$ && "$pod_percent" -ge 80 ]]; then
+        if [[ -n "$pod_percent" && "$pod_percent" =~ ^[0-9]+$ && "$pod_percent" -ge $RESOURCE_THRESHOLD_POD ]]; then
             high_pod_nodes+="노드 '$node_name' Pod 사용률: ${pod_percent}%. "
         fi
     done
 
     # Store resource threshold check results
     if [[ -n "$high_memory_nodes" ]]; then
-        store_result "node_memory_usage" "WARNING" "$high_memory_nodes" "메모리 사용률이 80%를 초과한 노드는 성능 저하 및 Pod 스케줄링 실패가 발생할 수 있습니다. 불필요한 워크로드를 제거하거나 노드를 추가하세요."
+        store_result "node_memory_usage" "WARNING" "$high_memory_nodes" "메모리 사용률이 ${RESOURCE_THRESHOLD_MEMORY}%를 초과한 노드는 성능 저하 및 Pod 스케줄링 실패가 발생할 수 있습니다. 불필요한 워크로드를 제거하거나 노드를 추가하세요."
     else
-        store_result "node_memory_usage" "SUCCESS" "모든 노드의 메모리 사용률이 정상 범위입니다."
+        store_result "node_memory_usage" "SUCCESS" "모든 노드의 메모리 사용률이 정상 범위입니다." "메모리 사용률이 임계치(${RESOURCE_THRESHOLD_MEMORY}%) 미만으로 안정적인 운영 상태입니다."
     fi
 
     if [[ -n "$high_pod_nodes" ]]; then
-        store_result "node_pod_usage" "WARNING" "$high_pod_nodes" "Pod 사용률이 80%를 초과한 노드는 신규 Pod를 스케줄링할 수 없게 됩니다. 노드를 추가하거나 불필요한 Pod를 제거하세요."
+        store_result "node_pod_usage" "WARNING" "$high_pod_nodes" "Pod 사용률이 ${RESOURCE_THRESHOLD_POD}%를 초과한 노드는 신규 Pod를 스케줄링할 수 없게 됩니다. 노드를 추가하거나 불필요한 Pod를 제거하세요."
     else
-        store_result "node_pod_usage" "SUCCESS" "모든 노드의 Pod 사용률이 정상 범위입니다."
+        store_result "node_pod_usage" "SUCCESS" "모든 노드의 Pod 사용률이 정상 범위입니다." "모든 노드에 신규 Pod를 스케줄링할 수 있는 여유 용량이 있습니다."
     fi
 
     if [[ $not_ready_nodes -eq 0 ]]; then
-        store_result "nodes" "SUCCESS" "모든 노드($node_count개)가 Ready 상태입니다."
+        store_result "nodes" "SUCCESS" "모든 노드($node_count개)가 Ready 상태입니다." "클러스터의 모든 노드가 워크로드를 처리할 준비가 되어 있습니다."
     else
         store_result "nodes" "FAILED" "$details" "노드가 Ready 상태가 아닐 때는 클러스터의 작업 부하를 처리할 수 없습니다. 노드의 kubelet 서비스와 네트워크 연결을 확인하세요."
     fi
@@ -658,7 +678,7 @@ check_pod_status() {
     fi
 
     if [[ $failed_pods -eq 0 && $pending_pods -eq 0 ]]; then
-        store_result "pods" "SUCCESS" "모든 파드($total_pods개)가 정상 상태입니다."
+        store_result "pods" "SUCCESS" "모든 파드($total_pods개)가 정상 상태입니다." "모든 파드가 Running 상태로 정상 동작 중입니다."
     elif [[ $failed_pods -eq 0 && $pending_pods -gt 0 ]]; then
         details="$pending_pods개의 파드가 Pending 상태입니다: ${problem_pods%, }"
         store_result "pods" "WARNING" "$details" "Pending 상태의 파드는 리소스 부족이나 스케줄링 제약으로 인해 실행되지 못하고 있습니다. 클러스터 리소스와 파드 요구사항을 확인하세요."
@@ -681,15 +701,15 @@ check_deployment_status() {
     
     while read -r namespace deploy_name replicas ready available; do
         if [[ "$replicas" == "$ready" && "$replicas" == "$available" ]]; then
-            ((healthy_deployments++))
+            healthy_deployments=$((healthy_deployments + 1))
         else
-            ((unhealthy_deployments++))
+            unhealthy_deployments=$((unhealthy_deployments + 1))
             problem_deployments+="$namespace/$deploy_name (desired: $replicas, ready: $ready, available: $available), "
         fi
     done < <(echo "$deploy_info" | jq -r '.items[] | "\(.metadata.namespace) \(.metadata.name) \(.spec.replicas // 0) \(.status.readyReplicas // 0) \(.status.availableReplicas // 0)"')
     
     if [[ $unhealthy_deployments -eq 0 ]]; then
-        store_result "deployments" "SUCCESS" "모든 디플로이먼트($total_deployments개)가 정상 상태입니다."
+        store_result "deployments" "SUCCESS" "모든 디플로이먼트($total_deployments개)가 정상 상태입니다." "모든 디플로이먼트가 원하는 복제본 수를 유지하고 있습니다."
     else
         details="$unhealthy_deployments개의 디플로이먼트가 비정상 상태입니다: ${problem_deployments%, }"
         store_result "deployments" "FAILED" "$details" "디플로이먼트가 원하는 복제본 수를 유지하지 못하고 있습니다. 파드 실행 실패, 리소스 부족, 또는 이미지 pull 오류 등이 원인일 수 있습니다."
@@ -713,14 +733,14 @@ check_service_endpoints() {
     while read -r namespace svc_name svc_type; do
         # Skip headless services and ExternalName services
         if [[ "$svc_type" == "ExternalName" ]]; then
-            ((services_with_endpoints++))
+            services_with_endpoints=$((services_with_endpoints + 1))
             continue
         fi
 
         # Skip kserve/modelmesh-serving service
         if [[ "$namespace" == "kserve" && "$svc_name" == "modelmesh-serving" ]]; then
             log_info "Skipping kserve/modelmesh-serving service as requested"
-            ((services_with_endpoints++))
+            services_with_endpoints=$((services_with_endpoints + 1))
             continue
         fi
 
@@ -728,15 +748,15 @@ check_service_endpoints() {
         local endpoint_count=$(echo "$all_endpoints" | jq -r ".items[] | select(.metadata.namespace==\"$namespace\" and .metadata.name==\"$svc_name\") | .subsets[]?.addresses[]?" 2>/dev/null | wc -l)
 
         if [[ $endpoint_count -gt 0 ]]; then
-            ((services_with_endpoints++))
+            services_with_endpoints=$((services_with_endpoints + 1))
         else
-            ((services_without_endpoints++))
+            services_without_endpoints=$((services_without_endpoints + 1))
             problem_services+="$namespace/$svc_name, "
         fi
     done < <(echo "$svc_info" | jq -r '.items[] | "\(.metadata.namespace) \(.metadata.name) \(.spec.type)"')
 
     if [[ $services_without_endpoints -eq 0 ]]; then
-        store_result "services" "SUCCESS" "모든 서비스($total_services개)가 유효한 엔드포인트를 가지고 있습니다."
+        store_result "services" "SUCCESS" "모든 서비스($total_services개)가 유효한 엔드포인트를 가지고 있습니다." "모든 서비스가 트래픽을 처리할 수 있는 상태입니다."
     else
         local details="$services_without_endpoints개의 서비스가 엔드포인트를 가지고 있지 않습니다: ${problem_services%, }"
         store_result "services" "FAILED" "$details" "엔드포인트가 없는 서비스는 트래픽을 처리할 수 없습니다. 관련 파드가 실행 중인지, 서비스 셀렉터가 올바른지 확인하세요."
@@ -757,23 +777,23 @@ check_storage_status() {
     
     while read -r pv_name phase; do
         if [[ "$phase" == "Bound" ]]; then
-            ((bound_pvs++))
+            bound_pvs=$((bound_pvs + 1))
         else
-            ((unbound_pvs++))
+            unbound_pvs=$((unbound_pvs + 1))
             problem_pvs+="$pv_name ($phase), "
         fi
     done < <(echo "$pv_info" | jq -r '.items[] | "\(.metadata.name) \(.status.phase)"')
-    
+
     local total_pvcs=$(echo "$pvc_info" | jq -r '.items | length')
     local bound_pvcs=0
     local unbound_pvcs=0
     local problem_pvcs=""
-    
+
     while read -r namespace pvc_name phase; do
         if [[ "$phase" == "Bound" ]]; then
-            ((bound_pvcs++))
+            bound_pvcs=$((bound_pvcs + 1))
         else
-            ((unbound_pvcs++))
+            unbound_pvcs=$((unbound_pvcs + 1))
             problem_pvcs+="$namespace/$pvc_name ($phase), "
         fi
     done < <(echo "$pvc_info" | jq -r '.items[] | "\(.metadata.namespace) \(.metadata.name) \(.status.phase)"')
@@ -792,7 +812,7 @@ check_storage_status() {
     fi
     
     if [[ "$status" == "SUCCESS" ]]; then
-        store_result "storage" "SUCCESS" "모든 PV($total_pvs개)와 PVC($total_pvcs개)가 Bound 상태입니다."
+        store_result "storage" "SUCCESS" "모든 PV($total_pvs개)와 PVC($total_pvcs개)가 Bound 상태입니다." "모든 스토리지 볼륨이 정상적으로 바인딩되어 사용 가능합니다."
     else
         store_result "storage" "FAILED" "${details% }" "Bound 상태가 아닌 PV/PVC는 스토리지 리소스를 사용할 수 없습니다. 스토리지 클래스 설정과 볼륨 프로비저닝을 확인하세요."
     fi
@@ -899,14 +919,14 @@ check_ingress_backends() {
         done
 
         if [[ "$backend_valid" == "true" ]]; then
-            ((healthy_ingresses++))
+            healthy_ingresses=$((healthy_ingresses + 1))
         else
-            ((unhealthy_ingresses++))
+            unhealthy_ingresses=$((unhealthy_ingresses + 1))
         fi
     done < <(echo "$ingress_info" | jq -r '.items[] | "\(.metadata.namespace) \(.metadata.name)"')
 
     if [[ $unhealthy_ingresses -eq 0 ]]; then
-        store_result "ingress" "SUCCESS" "모든 Ingress($total_ingresses개)가 유효한 백엔드 서비스에 연결되어 있습니다."
+        store_result "ingress" "SUCCESS" "모든 Ingress($total_ingresses개)가 유효한 백엔드 서비스에 연결되어 있습니다." "외부 트래픽이 올바른 서비스로 라우팅됩니다."
     else
         local details="$unhealthy_ingresses개의 Ingress가 잘못된 백엔드를 참조하고 있습니다: ${problem_ingresses%, }"
         store_result "ingress" "FAILED" "$details" "Ingress가 존재하지 않는 서비스를 백엔드로 참조하고 있습니다. Ingress 설정에서 올바른 서비스 이름을 확인하세요."
@@ -969,10 +989,10 @@ check_harbor_disk_usage() {
     local detailed_log="Harbor Disk Usage: $used_space/$total_space ($usage_percent%) on $mount_point"
     log_info "$detailed_log"
     
-    # Determine result based on usage percentage
-    if [[ $usage_percent -ge 90 ]]; then
+    # Determine result based on usage percentage (thresholds from config)
+    if [[ $usage_percent -ge $RESOURCE_THRESHOLD_DISK ]]; then
         store_result "harbor_disk" "FAILED" "Harbor 디스크 사용량이 매우 높습니다 ($usage_percent%)." "$detailed_log"
-    elif [[ $usage_percent -ge 80 ]]; then
+    elif [[ $usage_percent -ge $RESOURCE_THRESHOLD_DISK_WARN ]]; then
         store_result "harbor_disk" "WARNING" "Harbor 디스크 사용량이 높습니다 ($usage_percent%)." "$detailed_log"
     else
         store_result "harbor_disk" "SUCCESS" "Harbor 디스크 사용량이 정상 범위입니다 ($usage_percent%)." "$detailed_log"
@@ -1041,13 +1061,19 @@ check_minio_disk_usage() {
 
 # Check 9: URL connectivity
 check_url_connectivity() {
+    if [[ -z "$TARGET_URL" ]]; then
+        log_warn "URL이 설정되지 않아 점검을 건너뜁니다."
+        store_result "url_check" "WARNING" "URL이 설정되지 않아 점검을 건너뛰었습니다." "비대화형 모드에서 URL이 제공되지 않았습니다. URL 점검이 필요한 경우 --url 옵션으로 URL을 지정하세요."
+        return
+    fi
+
     log_info "URL 연결 상태 점검 중: $TARGET_URL"
-    
+
     local response_code=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET_URL" --connect-timeout 10 --max-time 30 2>/dev/null || echo "000")
     local response_time=$(curl -s -o /dev/null -w "%{time_total}" "$TARGET_URL" --connect-timeout 10 --max-time 30 2>/dev/null || echo "0.000")
     
     if [[ "$response_code" == "200" ]]; then
-        store_result "url_check" "SUCCESS" "URL이 정상적으로 응답합니다 (응답 코드: $response_code, 응답 시간: ${response_time}초)."
+        store_result "url_check" "SUCCESS" "URL이 정상적으로 응답합니다 (응답 코드: $response_code, 응답 시간: ${response_time}초)." "대상 URL이 정상적으로 서비스되고 있습니다."
     elif [[ "$response_code" =~ ^[45][0-9][0-9]$ ]]; then
         store_result "url_check" "FAILED" "URL에서 오류 응답을 받았습니다 (응답 코드: $response_code, 응답 시간: ${response_time}초)." "HTTP 4xx 오류는 클라이언트 오류(인증, 권한, 잘못된 요청 등)를, 5xx 오류는 서버 오류를 나타냅니다."
     elif [[ "$response_code" =~ ^[23][0-9][0-9]$ ]]; then
@@ -1793,6 +1819,7 @@ EOF
         done
     else
         log_warn "No node resources data available, generating demo data"
+        DEMO_DATA_USED=true
 
         # Add demo data warning banner
         node_content+="<div class=\"alert alert-warning\" role=\"alert\" style=\"margin-bottom: 20px; border-left: 4px solid #ffc107;\">
@@ -1974,7 +2001,10 @@ generate_json_report() {
     else
         json_data+="\"overall_status\":\"SUCCESS\","
     fi
-    
+
+    # Demo data flag
+    json_data+="\"demo_data_used\":$DEMO_DATA_USED,"
+
     # Node resources
     json_data+="\"node_resources\":{"
     local first_node=true

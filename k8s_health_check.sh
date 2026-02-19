@@ -2028,7 +2028,10 @@ generate_json_report() {
         fi
         local status="${CHECK_RESULTS[$check_name]:-UNKNOWN}"
         local details="${CHECK_DETAILS[$check_name]:-정보 없음}"
-        json_data+="\"$check_name\":{\"status\":\"$status\",\"details\":\"$details\"}"
+        # Escape backslashes and double quotes to prevent JSON injection
+        local details_escaped="${details//\\/\\\\}"
+        details_escaped="${details_escaped//\"/\\\"}"
+        json_data+="\"$check_name\":{\"status\":\"$status\",\"details\":\"$details_escaped\"}"
         first_check=false
     done
     json_data+="}}"

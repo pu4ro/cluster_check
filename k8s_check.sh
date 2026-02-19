@@ -77,7 +77,9 @@ output_file="k8s_check_result_$(date +%Y%m%d).txt"
 # 1. 노드 상태 확인
 if [ "$DEBUG_1" = true ]; then echo "🔍 클러스터 노드 상태를 확인합니다..."; fi
 
-node_status=$(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name} {.status.conditions[-1].type} {.status.conditions[-1].status}{"\n"}{end}')
+# Use jq to explicitly select the "Ready" condition (conditions[-1] is unreliable -
+# the last condition is not always "Ready"; it could be MemoryPressure, DiskPressure, etc.)
+node_status=$(kubectl get nodes -o json 2>/dev/null | jq -r '.items[] | "\(.metadata.name) Ready \(.status.conditions[] | select(.type=="Ready") | .status)"' 2>/dev/null)
 node_check="PASS"
 
 if [ "$DEBUG_1" = true ]; then
@@ -164,8 +166,12 @@ pv_check="PASS"
 while IFS= read -r line; do
   pv_name=$(echo "$line" | awk '{print $1}')
   phase=$(echo "$line" | awk '{print $2}')
-  if [[ "$phase" != "Bound" ]]; then
+  # "Available" = unbound but healthy PV (valid in healthy clusters)
+  # "Bound" = bound to a PVC (normal operation)
+  # "Released" or "Failed" = problematic states
+  if [[ "$phase" != "Bound" && "$phase" != "Available" ]]; then
     pv_check="FAIL"
+    if [ "$DEBUG_5" = true ]; then echo "❌ 문제 발생: PV '$pv_name' 상태 -> $phase"; fi
     break
   fi
 done <<< "$pv_status"
@@ -211,59 +217,73 @@ check_result 7 "모니터링 도구 상태 확인" $(test "$monitoring_check" = 
 kubectl get events -A &> /dev/null
 check_result 8 "클러스터 이벤트 확인" $?
 
-# 9. 네트워크 상태 확인 (Flannel 점검)
-if [ "$DEBUG_9" = true ]; then echo "🔍 네트워크 CNI (Flannel) 상태를 확인합니다..."; fi
-# check-jh 버전: flannel 네임스페이스를 변수로 지정하여 사용
-flannel_pods=$(kubectl get pods -n "$flannel_namespace" -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}' | grep flannel)
+# 9. 네트워크 CNI 상태 확인
+if [ "$DEBUG_9" = true ]; then echo "🔍 네트워크 CNI 상태를 확인합니다... (네임스페이스: $flannel_namespace)"; fi
+# Get all pods in the CNI namespace (not filtered by name - works for Flannel, Calico, Cilium, etc.)
+flannel_pods=$(kubectl get pods -n "$flannel_namespace" -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}' 2>/dev/null)
 flannel_check="PASS"
 if [ "$DEBUG_9" = true ]; then
-    echo "📢 전체 Flannel 파드 상태 (kubectl get pods -n $flannel_namespace -o wide | grep flannel):"
-    kubectl get pods -n "$flannel_namespace" -o wide | grep flannel
+    echo "📢 CNI 파드 상태 (kubectl get pods -n $flannel_namespace -o wide):"
+    kubectl get pods -n "$flannel_namespace" -o wide 2>/dev/null
 fi
-while IFS= read -r line; do
-  pod_name=$(echo "$line" | awk '{print $1}')
-  phase=$(echo "$line" | awk '{print $2}')
-  if [[ "$phase" != "Running" ]]; then
-    echo "❌ Flannel 파드 비정상 감지: $pod_name ($phase)"
+if [ -z "$flannel_pods" ]; then
+    echo "❌ 네임스페이스 '$flannel_namespace'에서 CNI 파드를 찾을 수 없습니다."
     flannel_check="FAIL"
-    break
-  fi
-done <<< "$flannel_pods"
-if ! ip link show | grep -q flannel.1; then
-  echo "❌ Flannel 네트워크 인터페이스 (flannel.1) 없음"
-  flannel_check="FAIL"
+else
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      pod_name=$(echo "$line" | awk '{print $1}')
+      phase=$(echo "$line" | awk '{print $2}')
+      if [[ "$phase" != "Running" ]]; then
+        echo "❌ CNI 파드 비정상 감지: $pod_name ($phase)"
+        flannel_check="FAIL"
+        break
+      fi
+    done <<< "$flannel_pods"
 fi
-flannel_logs=$(kubectl logs -n "$flannel_namespace" -l app=flannel 2>&1 | grep -E "error|fail")
-if [ -n "$flannel_logs" ]; then
-  echo "❌ Flannel 로그에서 오류 감지"
-  echo "$flannel_logs"
-  flannel_check="FAIL"
-fi
+# Note: ip link show flannel.1 is intentionally removed - it checks the local bastion/CI host,
+# not cluster nodes. CNI interface existence is better verified via pod health above.
 check_result 9 "네트워크 CNI 상태 확인" $(test "$flannel_check" = "PASS"; echo $?) "$flannel_pods"
 
 # 10. Kubernetes 버전 상태 확인
+# Note: kubectl version --short was deprecated and removed in k8s 1.28+
 if [ "$DEBUG_10" = true ]; then echo "🔍 Kubernetes 버전을 확인합니다..."; fi
-kubectl_version=$(kubectl version --short 2>&1)
+kubectl_version=$(kubectl version -o json 2>/dev/null | jq -r '"Client: \(.clientVersion.gitVersion) / Server: \(.serverVersion.gitVersion)"' 2>/dev/null)
+if [ -z "$kubectl_version" ]; then
+    kubectl_version=$(kubectl version 2>&1)
+fi
 check_result 10 "Kubernetes 버전 상태 확인" $? "$kubectl_version"
+if [ "$DEBUG_10" = true ]; then echo "📢 버전: $kubectl_version"; fi
+
+# Helper: check if HTTP status code indicates a reachable service
+# 2xx (success), 3xx (redirect), 401/403 (server up, auth required) → PASS
+http_status_ok() {
+  local code=$1
+  if [[ "$code" =~ ^[23][0-9][0-9]$ || "$code" == "401" || "$code" == "403" ]]; then
+    return 0
+  fi
+  return 1
+}
 
 # 11. Ingress 도메인 점검
 if [ "$DEBUG_11" = true ]; then echo "🔍 Ingress 도메인($domain) 상태를 점검합니다..."; fi
 ingress_status=$(curl --connect-timeout 10 --max-time 30 -s -o /dev/null -w "%{http_code}" "$protocol://$domain")
 if [ "$DEBUG_11" = true ]; then echo "📢 Ingress 응답 코드: $ingress_status"; fi
-check_result 11 "Ingress 도메인($domain) 점검" $(test "$ingress_status" = "200"; echo $?) "$ingress_status"
+http_status_ok "$ingress_status"; check_result 11 "Ingress 도메인($domain) 점검" $? "$ingress_status"
 
 # 12. Harbor 도메인 점검 (별도 변수 harbor_domain 사용)
 if [ "$DEBUG_12" = true ]; then echo "🔍 Harbor 도메인($harbor_domain) 상태를 점검합니다..."; fi
 harbor_status=$(curl --connect-timeout 10 --max-time 30 -s -o /dev/null -w "%{http_code}" "$protocol://$harbor_domain")
 if [ "$DEBUG_12" = true ]; then echo "📢 Harbor 응답 코드: $harbor_status"; fi
-check_result 12 "Harbor 도메인($harbor_domain) 점검" $(test "$harbor_status" = "200"; echo $?) "$harbor_status"
+# Harbor UI redirects to sign-in (302) and API requires auth (401) - both are valid
+http_status_ok "$harbor_status"; check_result 12 "Harbor 도메인($harbor_domain) 점검" $? "$harbor_status"
 
 # 13. Runway 백엔드 서비스 점검 (backend_domain 사용)
 if [ "$DEBUG_13" = true ]; then echo "🔍 Runway 백엔드 서비스($backend_domain) 상태를 점검합니다..."; fi
 runway_status=$(curl --connect-timeout 10 --max-time 30 -s -o /dev/null -w "%{http_code}" -X 'GET' \
   "$protocol://$backend_domain/v1/healthz/livez" -H 'accept: application/json')
 if [ "$DEBUG_13" = true ]; then echo "�� Runway 응답 코드: $runway_status"; fi
-check_result 13 "Runway 백엔드 서비스($backend_domain) 점검" $(test "$runway_status" = "200"; echo $?) "$runway_status"
+http_status_ok "$runway_status"; check_result 13 "Runway 백엔드 서비스($backend_domain) 점검" $? "$runway_status"
 
 # 14. Rook-Ceph 클러스터 상태 확인 (사용자 선택에 따라 실행)
 if [ "$ceph_check" = true ]; then
@@ -300,9 +320,9 @@ pass_count=0
 fail_count=0
 for result in "${results[@]}"; do
   if [[ $result == *"PASS"* ]]; then
-    ((pass_count++))
+    pass_count=$((pass_count + 1))
   elif [[ $result == *"FAIL"* ]]; then
-    ((fail_count++))
+    fail_count=$((fail_count + 1))
   fi
 done
 

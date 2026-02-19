@@ -242,7 +242,11 @@ collect_cluster_info() {
     if [[ -n "$K8S_VERSION_OVERRIDE" ]]; then
         K8S_VERSION="$K8S_VERSION_OVERRIDE"
     else
-        K8S_VERSION=$(timeout $KUBECTL_TIMEOUT kubectl version --short 2>/dev/null | grep "Server Version" | cut -d':' -f2 | xargs 2>/dev/null || echo "확인 불가")
+        # kubectl version --short was removed in k8s 1.28+; use -o json for compatibility
+        K8S_VERSION=$(timeout $KUBECTL_TIMEOUT kubectl version -o json 2>/dev/null | jq -r '.serverVersion.gitVersion' 2>/dev/null || true)
+        if [[ -z "$K8S_VERSION" ]]; then
+            K8S_VERSION=$(timeout $KUBECTL_TIMEOUT kubectl version 2>/dev/null | grep -i "server version" | awk '{print $NF}' 2>/dev/null || echo "확인 불가")
+        fi
     fi
 
     # Cluster info (with timeout) - remove ANSI color codes
@@ -301,7 +305,9 @@ collect_cluster_info() {
         # Get memory usage from describe node
         local mem_usage_percent="0"
         if [[ -n "$describe_output" ]]; then
-            mem_usage_percent=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep -w "memory" | awk '{print $3}' | tr -d '()%' | head -1 || echo "0")
+            # Use grep -oP to reliably extract the percentage from "(XX%)" pattern
+            # More robust than awk column position which breaks if format varies
+            mem_usage_percent=$(echo "$describe_output" | grep -A 20 "Allocated resources:" | grep -w "memory" | grep -oP '\(\K[0-9]+(?=%)' | head -1 || echo "0")
         fi
 
         # Get disk usage from Flannel DaemonSet pods

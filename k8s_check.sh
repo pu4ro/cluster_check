@@ -161,26 +161,33 @@ done <<< "$coredns_status"
 check_result 4 "CoreDNS 상태 확인" $(test "$coredns_check" = "PASS"; echo $?)
 
 # 5. PersistentVolume 상태 확인
-pv_status=$(kubectl get pv -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}')
+pv_status=$(kubectl get pv -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}' 2>/dev/null || true)
 pv_check="PASS"
-while IFS= read -r line; do
-  pv_name=$(echo "$line" | awk '{print $1}')
-  phase=$(echo "$line" | awk '{print $2}')
-  # "Available" = unbound but healthy PV (valid in healthy clusters)
-  # "Bound" = bound to a PVC (normal operation)
-  # "Released" or "Failed" = problematic states
-  if [[ "$phase" != "Bound" && "$phase" != "Available" ]]; then
-    pv_check="FAIL"
-    if [ "$DEBUG_5" = true ]; then echo "❌ 문제 발생: PV '$pv_name' 상태 -> $phase"; fi
-    break
-  fi
-done <<< "$pv_status"
+# If no PVs exist (empty output), that is normal - PASS
+if [ -n "$pv_status" ]; then
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    pv_name=$(echo "$line" | awk '{print $1}')
+    phase=$(echo "$line" | awk '{print $2}')
+    # "Available" = unbound but healthy PV (valid in healthy clusters)
+    # "Bound" = bound to a PVC (normal operation)
+    # "Released" or "Failed" = problematic states
+    if [[ "$phase" != "Bound" && "$phase" != "Available" ]]; then
+      pv_check="FAIL"
+      if [ "$DEBUG_5" = true ]; then echo "❌ 문제 발생: PV '$pv_name' 상태 -> $phase"; fi
+      break
+    fi
+  done <<< "$pv_status"
+fi
 check_result 5 "PersistentVolume 상태 확인" $(test "$pv_check" = "PASS"; echo $?) "$pv_status"
 
 # 6. PersistentVolumeClaim 상태 확인
-pvc_status=$(kubectl get pvc -A -o jsonpath='{range .items[*]}{.metadata.namespace} {.metadata.name} {.status.phase}{"\n"}{end}')
+pvc_status=$(kubectl get pvc -A -o jsonpath='{range .items[*]}{.metadata.namespace} {.metadata.name} {.status.phase}{"\n"}{end}' 2>/dev/null || true)
 pvc_check="PASS"
+# If no PVCs exist (empty output), that is normal - PASS
+if [ -n "$pvc_status" ]; then
 while IFS= read -r line; do
+  [ -z "$line" ] && continue
   ns=$(echo "$line" | awk '{print $1}')
   pvc_name=$(echo "$line" | awk '{print $2}')
   phase=$(echo "$line" | awk '{print $3}')
@@ -189,6 +196,7 @@ while IFS= read -r line; do
     break
   fi
 done <<< "$pvc_status"
+fi
 check_result 6 "PersistentVolumeClaim 상태 확인" $(test "$pvc_check" = "PASS"; echo $?) "$pvc_status"
 
 # 7. 모니터링 도구 상태 확인 (Prometheus API를 통한 확인)

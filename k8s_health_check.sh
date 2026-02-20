@@ -5,9 +5,10 @@
 # Author: DevOps Team
 # Version: 3.0.0
 
-# More lenient error handling to prevent early exit
-set -e  # Exit on error, but allow more graceful handling
-# set -u and set -o pipefail removed to prevent premature termination
+# Error handling: set -e removed because individual check functions contain
+# intermediate commands (jq, grep, awk) that may fail without being errors.
+# Each check is wrapped with || log_warn at the call site to isolate failures.
+# set -u and set -o pipefail also removed to prevent premature termination.
 
 # Global variables
 declare -A CHECK_RESULTS=()
@@ -502,35 +503,26 @@ check_node_status() {
         fi
     done <<< "$node_status_list"
     
-    # Get node resource information (parallelized for performance)
+    # Get node resource information (sequential - parallelism via subshells cannot
+    # write back to the parent's NODE_RESOURCES associative array, so all node data
+    # would be lost and demo data would always be used instead)
     local node_name_list
     if ! node_name_list=$(echo "$node_info" | jq -r '.items[].metadata.name' 2>/dev/null); then
         log_warn "Failed to get node name list, skipping resource collection"
     else
-        log_info "노드 리소스 정보 수집 중 (병렬 처리)..."
+        log_info "노드 리소스 정보 수집 중..."
         for node_name in $node_name_list; do
             [[ -z "$node_name" ]] && continue
             log_info "노드 '$node_name' 리소스 정보 수집 중..."
-            (
-                if get_node_resources "$node_name"; then
-                    log_debug "Successfully processed node: $node_name"
-                else
-                    log_warn "Failed to get resources for node: $node_name"
-                fi
-            ) &
-
-            # Limit concurrent jobs to avoid overwhelming the cluster
-            if (( $(jobs -r | wc -l) >= MAX_PARALLEL_JOBS )); then
-                wait -n
+            if get_node_resources "$node_name"; then
+                log_debug "Successfully processed node: $node_name"
+            else
+                log_warn "Failed to get resources for node: $node_name"
             fi
         done
 
-        # Wait for all background jobs to complete
-        wait
-
-        # Count processed nodes after all jobs complete
-        local processed_nodes=$(echo "${!NODE_RESOURCES[@]}" | wc -w)
-        log_info "총 $processed_nodes개 노드의 리소스 정보를 수집했습니다."
+        local processed_nodes=${#NODE_RESOURCES[@]}
+        log_info "총 ${processed_nodes}개 노드의 리소스 정보를 수집했습니다."
     fi
 
     # Check for resource threshold violations (80%)
@@ -778,7 +770,11 @@ check_storage_status() {
     while read -r pv_name phase; do
         if [[ "$phase" == "Bound" ]]; then
             bound_pvs=$((bound_pvs + 1))
+        elif [[ "$phase" == "Available" ]]; then
+            # "Available" = unbound but healthy PV waiting to be claimed; not an error
+            bound_pvs=$((bound_pvs + 1))
         else
+            # "Released" or "Failed" are problematic states
             unbound_pvs=$((unbound_pvs + 1))
             problem_pvs+="$pv_name ($phase), "
         fi
@@ -1069,8 +1065,11 @@ check_url_connectivity() {
 
     log_info "URL 연결 상태 점검 중: $TARGET_URL"
 
-    local response_code=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET_URL" --connect-timeout 10 --max-time 30 2>/dev/null || echo "000")
-    local response_time=$(curl -s -o /dev/null -w "%{time_total}" "$TARGET_URL" --connect-timeout 10 --max-time 30 2>/dev/null || echo "0.000")
+    # Single curl call to get both response code and time atomically
+    local curl_output
+    curl_output=$(curl -s -o /dev/null -w "%{http_code} %{time_total}" "$TARGET_URL" --connect-timeout 10 --max-time 30 2>/dev/null || echo "000 0.000")
+    local response_code="${curl_output%% *}"
+    local response_time="${curl_output##* }"
     
     if [[ "$response_code" == "200" ]]; then
         store_result "url_check" "SUCCESS" "URL이 정상적으로 응답합니다 (응답 코드: $response_code, 응답 시간: ${response_time}초)." "대상 URL이 정상적으로 서비스되고 있습니다."

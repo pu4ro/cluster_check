@@ -21,6 +21,9 @@ fi
 
 # Set default values (can be overridden by .env or command line)
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/reports}"
+# Resolve to absolute path so parent and child scripts find the same directory
+# regardless of the working directory when the script is invoked
+OUTPUT_DIR="$(cd "$OUTPUT_DIR" 2>/dev/null && pwd)" || OUTPUT_DIR="${SCRIPT_DIR}/reports"
 REPORT_VERSION="${REPORT_VERSION:-1.0}"
 AUTHOR_NAME="${AUTHOR_NAME:-기술운영팀}"
 ORGANIZATION="${ORGANIZATION:-}"
@@ -1030,7 +1033,8 @@ TABLEEOF
         local check_criterion="${check_criteria[$i]}"
 
         local status=$(jq -r ".check_results.${check_name}.status // \"UNKNOWN\"" "$JSON_INPUT")
-        local details=$(jq -r ".check_results.${check_name}.details // \"정보 없음\"" "$JSON_INPUT" | sed 's/"/\&quot;/g')
+        # Escape HTML special characters: & must be first to avoid double-escaping
+        local details=$(jq -r ".check_results.${check_name}.details // \"정보 없음\"" "$JSON_INPUT" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
 
         # Get severity, action status, and comment from .env variables
         local severity_var="${check_severity_vars[$i]}"
@@ -1379,7 +1383,8 @@ ISSUEEOF
         local check_title="${check_titles[$i]}"
 
         local status=$(jq -r ".check_results.${check_name}.status // \"UNKNOWN\"" "$JSON_INPUT")
-        local details=$(jq -r ".check_results.${check_name}.details // \"정보 없음\"" "$JSON_INPUT" | sed 's/"/\&quot;/g')
+        # Escape HTML special characters: & must be first to avoid double-escaping
+        local details=$(jq -r ".check_results.${check_name}.details // \"정보 없음\"" "$JSON_INPUT" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
 
         if [[ "$status" == "WARNING" || "$status" == "FAILED" ]]; then
             has_issues=true
